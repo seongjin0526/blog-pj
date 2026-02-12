@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}{{ post.title }} - My Blog{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <article>
+            <header class="mb-4">
+                <h1>{{ post.title }}</h1>
+                <p class="text-muted">{{ post.date|date:"Y-m-d H:i:s" }}</p>
+                {% if post.tags %}
+                <div>
+                    {% for tag in post.tags %}
+                        <a href="{% url 'blog:post_list' %}?tag={{ tag }}"
+                           class="badge bg-secondary text-decoration-none">{{ tag }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </header>
+            <div class="post-content">
+                {{ post.body|safe }}
+            </div>
+        </article>
+        <hr class="my-4">
+        <a href="{% url 'blog:post_list' %}" class="btn btn-secondary">&larr; Back to list</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>hljs.highlightAll();</script>
+{% endblock %}

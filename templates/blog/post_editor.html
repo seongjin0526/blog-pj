@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}글 작성 - My Blog{% endblock %}
+{% block main_class %}container-fluid px-4{% endblock %}
+
+{% block content %}
+<form method="post" id="editor-form">
+    {% csrf_token %}
+
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <div class="row mb-3">
+        <div class="col-md-8">
+            <input type="text" name="title" id="id-title" class="form-control form-control-lg"
+                   placeholder="제목을 입력하세요" value="{{ title|default:'' }}" required>
+        </div>
+        <div class="col-md-4 d-flex align-items-center gap-2">
+            <button type="submit" class="btn btn-primary">발행하기</button>
+            <a href="{% url 'blog:post_list' %}" class="btn btn-outline-secondary">취소</a>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <input type="text" name="summary" id="id-summary" class="form-control"
+                   placeholder="요약 (선택사항)" value="{{ summary|default:'' }}">
+        </div>
+        <div class="col-md-6">
+            <input type="text" name="tags" id="id-tags" class="form-control"
+                   placeholder="태그 (쉼표로 구분: Python, Django, Tutorial)" value="{{ tags|default:'' }}">
+        </div>
+    </div>
+
+    <!-- 툴바 -->
+    <div class="btn-toolbar mb-2 editor-toolbar" role="toolbar">
+        <div class="btn-group btn-group-sm me-2">
+            <button type="button" class="btn btn-outline-secondary" onclick="insertMd('**', '**')" title="굵게">
+                <strong>B</strong>
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="insertMd('*', '*')" title="기울임">
+                <em>I</em>
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="insertMd('~~', '~~')" title="취소선">
+                <s>S</s>
+            </button>
+        </div>
+        <div class="btn-group btn-group-sm me-2">
+            <button type="button" class="btn btn-outline-secondary" onclick="insertMd('## ', '')" title="제목">
+                H2
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="insertMd('### ', '')" title="소제목">
+                H3
+            </button>
+        </div>
+        <div class="btn-group btn-group-sm me-2">
+            <button type="button" class="btn btn-outline-secondary" onclick="insertMd('- ', '')" title="목록">
+                &bull; List
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="insertMd('> ', '')" title="인용">
+                &ldquo; Quote
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="insertMd('```\n', '\n```')" title="코드 블록">
+                &lt;/&gt;
+            </button>
+        </div>
+        <div class="btn-group btn-group-sm me-2">
+            <button type="button" class="btn btn-outline-secondary" onclick="insertMd('[', '](url)')" title="링크">
+                Link
+            </button>
+            <label class="btn btn-outline-secondary mb-0" title="이미지 업로드">
+                Image
+                <input type="file" id="image-input" accept="image/*" class="d-none" multiple>
+            </label>
+        </div>
+        <div class="btn-group btn-group-sm ms-auto">
+            <button type="button" class="btn btn-outline-secondary" id="btn-layout" onclick="toggleLayout()" title="레이아웃 전환">
+                &#x25eb; 좌우
+            </button>
+        </div>
+    </div>
+
+    <!-- 에디터 + 미리보기 -->
+    <div class="row editor-container" id="editor-container">
+        <div class="col-md-6 editor-pane" id="editor-pane">
+            <textarea name="body" id="id-body" class="form-control editor-textarea"
+                      placeholder="마크다운으로 글을 작성하세요...">{{ body|default:'' }}</textarea>
+        </div>
+        <div class="col-md-6 preview-pane" id="preview-pane">
+            <div class="preview-label">미리보기</div>
+            <div class="post-content" id="preview-content"></div>
+        </div>
+    </div>
+</form>
+
+<!-- 이미지 업로드 중 오버레이 -->
+<div id="upload-overlay" class="d-none">
+    <div class="spinner-border text-light" role="status">
+        <span class="visually-hidden">업로드 중...</span>
+    </div>
+</div>
+
+<style>
+    .editor-toolbar .btn {
+        font-size: 0.8rem;
+    }
+    .editor-container {
+        min-height: 70vh;
+    }
+    .editor-textarea {
+        height: 70vh;
+        resize: vertical;
+        font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+        font-size: 0.95rem;
+        line-height: 1.6;
+        tab-size: 4;
+    }
+    .preview-pane {
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 1rem;
+        overflow-y: auto;
+        max-height: 70vh;
+        background: #fff;
+    }
+    .preview-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: #6c757d;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid #eee;
+    }
+    /* 상하 레이아웃 */
+    .editor-container.layout-vertical .editor-pane,
+    .editor-container.layout-vertical .preview-pane {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+    .editor-container.layout-vertical .editor-textarea {
+        height: 40vh;
+    }
+    .editor-container.layout-vertical .preview-pane {
+        max-height: 40vh;
+        margin-top: 1rem;
+    }
+    /* 드래그 앤 드롭 힌트 */
+    .editor-textarea.drag-over {
+        border-color: #0d6efd;
+        background-color: #f0f7ff;
+    }
+    #upload-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+    }
+    #upload-overlay.d-none { display: none !important; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const textarea = document.getElementById('id-body');
+const preview = document.getElementById('preview-content');
+const imageInput = document.getElementById('image-input');
+const overlay = document.getElementById('upload-overlay');
+const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+// marked 설정 - highlight.js 연동
+marked.setOptions({
+    breaks: true,
+    gfm: true,
+    highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+            return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+    },
+});
+
+// 실시간 미리보기
+function updatePreview() {
+    const md = textarea.value;
+    preview.innerHTML = marked.parse(md);
+    // highlight.js가 marked의 highlight 옵션을 무시하는 경우 대비
+    preview.querySelectorAll('pre code').forEach(block => {
+        hljs.highlightElement(block);
+    });
+}
+
+textarea.addEventListener('input', updatePreview);
+updatePreview();
+
+// 마크다운 문법 삽입
+function insertMd(before, after) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = textarea.value.substring(start, end);
+    const text = before + (selected || '텍스트') + after;
+
+    textarea.focus();
+    // execCommand를 사용하여 undo 지원
+    document.execCommand('insertText', false, text);
+
+    // 삽입한 텍스트 선택
+    if (!selected) {
+        textarea.selectionStart = start + before.length;
+        textarea.selectionEnd = start + before.length + (selected || '텍스트').length;
+    }
+    updatePreview();
+}
+
+// 이미지 업로드
+async function uploadFile(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    overlay.classList.remove('d-none');
+    try {
+        const res = await fetch("{% url 'blog:upload_image' %}", {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrfToken },
+            body: formData,
+        });
+        const data = await res.json();
+        if (data.url) {
+            const mdImage = `![${file.name}](${data.url})`;
+            textarea.focus();
+            document.execCommand('insertText', false, mdImage);
+            updatePreview();
+        } else {
+            alert(data.error || '업로드 실패');
+        }
+    } catch (e) {
+        alert('업로드 중 오류가 발생했습니다.');
+    } finally {
+        overlay.classList.add('d-none');
+    }
+}
+
+// 파일 선택 업로드
+imageInput.addEventListener('change', () => {
+    for (const file of imageInput.files) {
+        uploadFile(file);
+    }
+    imageInput.value = '';
+});
+
+// 드래그 앤 드롭 업로드
+textarea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    textarea.classList.add('drag-over');
+});
+textarea.addEventListener('dragleave', () => {
+    textarea.classList.remove('drag-over');
+});
+textarea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    textarea.classList.remove('drag-over');
+    const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+    files.forEach(uploadFile);
+});
+
+// 붙여넣기 업로드
+textarea.addEventListener('paste', (e) => {
+    const items = [...(e.clipboardData?.items || [])];
+    const imageItems = items.filter(item => item.type.startsWith('image/'));
+    if (imageItems.length > 0) {
+        e.preventDefault();
+        imageItems.forEach(item => {
+            const file = item.getAsFile();
+            if (file) uploadFile(file);
+        });
+    }
+});
+
+// Tab 키로 들여쓰기
+textarea.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        document.execCommand('insertText', false, '    ');
+    }
+});
+
+// 레이아웃 토글
+let isVertical = false;
+function toggleLayout() {
+    const container = document.getElementById('editor-container');
+    const btn = document.getElementById('btn-layout');
+    isVertical = !isVertical;
+    if (isVertical) {
+        container.classList.add('layout-vertical');
+        btn.innerHTML = '&#x25e8; 상하';
+    } else {
+        container.classList.remove('layout-vertical');
+        btn.innerHTML = '&#x25eb; 좌우';
+    }
+}
+</script>
+{% endblock %}
