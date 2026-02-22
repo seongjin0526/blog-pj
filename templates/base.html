@@ -14,12 +14,14 @@
         <div class="container">
             <a class="navbar-brand" href="{% url 'blog:post_list' %}">My Blog</a>
             <div class="navbar-nav ms-auto">
+                {% if user.is_staff %}
                 <a class="nav-link" href="{% url 'blog:post_create' %}">+ 글 작성</a>
+                {% endif %}
                 {% if user.is_authenticated %}
                     <span class="nav-link text-light">{{ user.get_short_name|default:user.username }}</span>
                     <a class="nav-link" href="{% url 'account_logout' %}">로그아웃</a>
                 {% else %}
-                    <a class="nav-link" href="{% url 'google_login' %}">Google 로그인</a>
+                    <a class="nav-link" href="{% url 'blog:google_login_check' %}">Google 로그인</a>
                 {% endif %}
             </div>
         </div>

@@ -148,3 +148,8 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 ACCOUNT_LOGOUT_ON_GET = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
+
+# 이 이메일로 Google 로그인 시 자동으로 관리자(staff) 권한 부여
+ADMIN_EMAILS = [
+    'sungjin0526@gmail.com',
+]

@@ -4,10 +4,13 @@ import uuid
 from datetime import datetime
 
 from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
+
+from allauth.socialaccount.models import SocialApp
 
 from .models import Comment
 from .utils import get_all_posts, get_all_tags, get_post_by_slug, POSTS_DIR
@@ -37,6 +40,7 @@ def post_detail(request, slug):
     })
 
 
+@staff_member_required
 def post_create(request):
     if request.method == 'POST':
         title = request.POST.get('title', '').strip()
@@ -80,6 +84,7 @@ def post_create(request):
     return render(request, 'blog/post_editor.html')
 
 
+@staff_member_required
 @require_POST
 def upload_image(request):
     image = request.FILES.get('image')
@@ -104,6 +109,18 @@ def upload_image(request):
 
     url = f"{settings.MEDIA_URL}uploads/{filename}"
     return JsonResponse({'url': url})
+
+
+def google_login_check(request):
+    """Google Social App이 등록되어 있으면 allauth로 리다이렉트, 없으면 안내 페이지."""
+    if SocialApp.objects.filter(provider='google').exists():
+        from django.urls import reverse
+        url = reverse('google_login')
+        next_url = request.GET.get('next', '')
+        if next_url:
+            url += f'?next={next_url}'
+        return redirect(url)
+    return render(request, 'blog/google_login_guide.html')
 
 
 @login_required
