@@ -10,8 +10,6 @@ from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from allauth.socialaccount.models import SocialApp
-
 from .models import Comment
 from .utils import get_all_posts, get_all_tags, get_post_by_slug, POSTS_DIR
 
@@ -112,8 +110,9 @@ def upload_image(request):
 
 
 def google_login_check(request):
-    """Google Social App이 등록되어 있으면 allauth로 리다이렉트, 없으면 안내 페이지."""
-    if SocialApp.objects.filter(provider='google').exists():
+    """Google OAuth가 설정되어 있으면 allauth로 리다이렉트, 없으면 안내 페이지."""
+    client_id = settings.SOCIALACCOUNT_PROVIDERS.get('google', {}).get('APP', {}).get('client_id', '')
+    if client_id:
         from django.urls import reverse
         url = reverse('google_login')
         next_url = request.GET.get('next', '')

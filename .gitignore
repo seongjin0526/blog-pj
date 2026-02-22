@@ -2,3 +2,8 @@ db.sqlite3
 __pycache__/
 *.pyc
 .env
+
+# 블로그 운영 아티팩트 (샘플 제외)
+posts/*
+!posts/hello-world.md
+media/
