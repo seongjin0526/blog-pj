@@ -4,10 +4,12 @@ import uuid
 from datetime import datetime
 
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.http import Http404, JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from .models import Comment
 from .utils import get_all_posts, get_all_tags, get_post_by_slug, POSTS_DIR
 
 
@@ -28,7 +30,11 @@ def post_detail(request, slug):
     post = get_post_by_slug(slug)
     if post is None:
         raise Http404("글을 찾을 수 없습니다.")
-    return render(request, 'blog/post_detail.html', {'post': post})
+    comments = Comment.objects.filter(post_slug=slug).select_related('user')
+    return render(request, 'blog/post_detail.html', {
+        'post': post,
+        'comments': comments,
+    })
 
 
 def post_create(request):
@@ -98,6 +104,31 @@ def upload_image(request):
 
     url = f"{settings.MEDIA_URL}uploads/{filename}"
     return JsonResponse({'url': url})
+
+
+@login_required
+@require_POST
+def comment_create(request, slug):
+    post = get_post_by_slug(slug)
+    if post is None:
+        raise Http404("글을 찾을 수 없습니다.")
+    content = request.POST.get('content', '').strip()
+    if content:
+        Comment.objects.create(
+            post_slug=slug,
+            user=request.user,
+            content=content,
+        )
+    return redirect('blog:post_detail', slug=slug)
+
+
+@login_required
+@require_POST
+def comment_delete(request, pk):
+    comment = get_object_or_404(Comment, pk=pk, user=request.user)
+    slug = comment.post_slug
+    comment.delete()
+    return redirect('blog:post_detail', slug=slug)
 
 
 def _make_slug(title):
