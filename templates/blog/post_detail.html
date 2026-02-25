@@ -7,7 +7,12 @@
     <div class="col-lg-8 mx-auto">
         <article>
             <header class="mb-4">
-                <h1>{{ post.title }}</h1>
+                <div class="d-flex align-items-center">
+                    <h1 class="mb-0">{{ post.title }}</h1>
+                    {% if user.is_staff %}
+                    <a href="{% url 'blog:post_edit' slug=post.slug %}" class="btn btn-outline-secondary btn-sm ms-3">수정</a>
+                    {% endif %}
+                </div>
                 <p class="text-muted">{{ post.date|date:"Y-m-d H:i:s" }}</p>
                 {% if post.tags %}
                 <div>

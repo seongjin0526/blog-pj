@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}글 작성 - My Blog{% endblock %}
+{% block title %}{% if edit_mode %}글 수정{% else %}글 작성{% endif %} - My Blog{% endblock %}
 {% block main_class %}container-fluid px-4{% endblock %}
 
 {% block content %}
+{% if not edit_mode %}
 <!-- 파일 업로드 섹션 -->
 <div class="card mb-3">
     <div class="card-header p-2" style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#upload-section">
@@ -21,8 +22,9 @@
         </div>
     </div>
 </div>
+{% endif %}
 
-<form method="post" id="editor-form">
+<form method="post" id="editor-form" {% if edit_mode %}action="{% url 'blog:post_edit' slug=edit_slug %}"{% endif %}>
     {% csrf_token %}
 
     {% if error %}
@@ -35,7 +37,7 @@
                    placeholder="제목을 입력하세요" value="{{ title|default:'' }}" required>
         </div>
         <div class="col-md-4 d-flex align-items-center gap-2">
-            <button type="submit" class="btn btn-primary">발행하기</button>
+            <button type="submit" class="btn btn-primary">{% if edit_mode %}수정하기{% else %}발행하기{% endif %}</button>
             <a href="{% url 'blog:post_list' %}" class="btn btn-outline-secondary">취소</a>
         </div>
     </div>
@@ -324,6 +326,7 @@ function toggleLayout() {
 const postFileInput = document.getElementById('post-file-input');
 const postFileBtn = document.getElementById('post-file-upload-btn');
 const postFileStatus = document.getElementById('post-file-status');
+if (postFileInput && postFileBtn) {
 
 postFileInput.addEventListener('change', () => {
     postFileBtn.disabled = !postFileInput.files.length;
@@ -370,5 +373,6 @@ postFileBtn.addEventListener('click', async () => {
         postFileBtn.disabled = false;
     }
 });
+} // end if postFileInput
 </script>
 {% endblock %}

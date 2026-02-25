@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.cache import never_cache
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -14,7 +15,8 @@ from django.views.decorators.http import require_POST
 from .models import APIKey, Comment
 from .utils import (
     get_all_posts, get_all_tags, get_post_by_slug, make_slug,
-    process_uploaded_md, process_uploaded_zip, POSTS_DIR,
+    process_uploaded_md, process_uploaded_zip,
+    extract_frontmatter_and_body, rebuild_md_content, POSTS_DIR,
 )
 
 
@@ -42,7 +44,8 @@ def post_detail(request, slug):
     })
 
 
-@staff_member_required
+@never_cache
+@staff_member_required(login_url='/')
 def post_create(request):
     if request.method == 'POST':
         title = request.POST.get('title', '').strip()
@@ -86,7 +89,8 @@ def post_create(request):
     return render(request, 'blog/post_editor.html')
 
 
-@staff_member_required
+@never_cache
+@staff_member_required(login_url='/')
 @require_POST
 def upload_image(request):
     image = request.FILES.get('image')
@@ -118,7 +122,8 @@ def upload_image(request):
     return JsonResponse({'url': url})
 
 
-@staff_member_required
+@never_cache
+@staff_member_required(login_url='/')
 @require_POST
 def post_upload(request):
     """MD/ZIP 파일 업로드로 게시글을 생성합니다."""
@@ -145,6 +150,99 @@ def post_upload(request):
     from django.urls import reverse
     url = reverse('blog:post_detail', kwargs={'slug': slug})
     return JsonResponse({'url': url})
+
+
+@never_cache
+@staff_member_required(login_url='/')
+@require_POST
+def post_bulk_delete(request):
+    slugs = request.POST.getlist('slugs')
+    for slug in slugs:
+        # slug 검증: 파일명으로만 사용되도록 경로 구분자 차단
+        if '/' in slug or '\\' in slug or '..' in slug:
+            continue
+        filepath = os.path.join(POSTS_DIR, f'{slug}.md')
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    return redirect('blog:post_list')
+
+
+@never_cache
+@staff_member_required(login_url='/')
+def post_edit(request, slug):
+    filepath = os.path.join(POSTS_DIR, f'{slug}.md')
+    if not os.path.exists(filepath):
+        raise Http404("글을 찾을 수 없습니다.")
+
+    if request.method == 'POST':
+        title = request.POST.get('title', '').strip()
+        summary = request.POST.get('summary', '').strip()
+        tags_raw = request.POST.get('tags', '').strip()
+        body = request.POST.get('body', '').strip()
+
+        if not title or not body:
+            return render(request, 'blog/post_editor.html', {
+                'error': '제목과 본문을 입력해주세요.',
+                'title': title,
+                'summary': summary,
+                'tags': tags_raw,
+                'body': body,
+                'edit_mode': True,
+                'edit_slug': slug,
+            })
+
+        # 기존 frontmatter에서 date 보존
+        with open(filepath, 'r', encoding='utf-8') as f:
+            old_content = f.read()
+        old_meta, _ = extract_frontmatter_and_body(old_content)
+        date_str = old_meta.get('date', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+        tags = [t.strip() for t in tags_raw.split(',') if t.strip()]
+        meta = {
+            'title': title,
+            'date': date_str,
+            'summary': summary,
+            'tags': tags,
+        }
+        md_content = rebuild_md_content(meta, body)
+
+        new_slug = make_slug(title)
+        if new_slug != slug:
+            # slug 변경 시 기존 파일 삭제 + 새 파일 생성
+            os.remove(filepath)
+            new_filepath = os.path.join(POSTS_DIR, f'{new_slug}.md')
+            counter = 1
+            while os.path.exists(new_filepath):
+                new_filepath = os.path.join(POSTS_DIR, f'{new_slug}-{counter}.md')
+                new_slug = f'{make_slug(title)}-{counter}'
+                counter += 1
+            with open(new_filepath, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+            return redirect('blog:post_detail', slug=new_slug)
+        else:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+            return redirect('blog:post_detail', slug=slug)
+
+    # GET: 기존 파일 읽어서 에디터에 전달
+    with open(filepath, 'r', encoding='utf-8') as f:
+        content = f.read()
+    meta, body = extract_frontmatter_and_body(content)
+
+    raw_tags = meta.get('tags', [])
+    if isinstance(raw_tags, list):
+        tags_str = ', '.join(str(t) for t in raw_tags)
+    else:
+        tags_str = str(raw_tags)
+
+    return render(request, 'blog/post_editor.html', {
+        'title': meta.get('title', ''),
+        'summary': meta.get('summary', ''),
+        'tags': tags_str,
+        'body': body,
+        'edit_mode': True,
+        'edit_slug': slug,
+    })
 
 
 def google_login_check(request):
@@ -249,7 +347,8 @@ def api_guide(request):
     return render(request, 'blog/api_guide.html')
 
 
-@staff_member_required
+@never_cache
+@staff_member_required(login_url='/')
 def api_admin_guide(request):
     return render(request, 'blog/api_admin_guide.html')
 
