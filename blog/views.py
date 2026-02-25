@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.views.decorators.cache import never_cache
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -26,10 +27,25 @@ def post_list(request):
     if tag:
         posts = [p for p in posts if tag in p['tags']]
     all_tags = get_all_tags()
+
+    per_page_options = [10, 20, 50, 100]
+    try:
+        per_page = int(request.GET.get('per_page', 10))
+    except (ValueError, TypeError):
+        per_page = 10
+    if per_page not in per_page_options:
+        per_page = 10
+
+    paginator = Paginator(posts, per_page)
+    page = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page)
+
     return render(request, 'blog/post_list.html', {
-        'posts': posts,
+        'page_obj': page_obj,
         'all_tags': all_tags,
         'current_tag': tag,
+        'per_page': per_page,
+        'per_page_options': per_page_options,
     })
 
 

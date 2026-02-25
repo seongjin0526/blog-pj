@@ -27,7 +27,18 @@
         </div>
         {% endif %}
 
-        {% if user.is_staff and posts %}
+        <div class="d-flex justify-content-end mb-3">
+            <div class="btn-group btn-group-sm">
+                {% for opt in per_page_options %}
+                    <a href="{% url 'blog:post_list' %}?per_page={{ opt }}{% if current_tag %}&tag={{ current_tag }}{% endif %}"
+                       class="btn {% if per_page == opt %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                        {{ opt }}개
+                    </a>
+                {% endfor %}
+            </div>
+        </div>
+
+        {% if user.is_staff and page_obj %}
         <form method="post" action="{% url 'blog:post_bulk_delete' %}" id="bulk-delete-form">
             {% csrf_token %}
             <div class="d-flex align-items-center mb-3">
@@ -39,8 +50,8 @@
             </div>
         {% endif %}
 
-        {% if posts %}
-            {% for post in posts %}
+        {% if page_obj %}
+            {% for post in page_obj %}
             <div class="card mb-4 shadow-sm">
                 <div class="card-body">
                     <div class="d-flex align-items-start">
@@ -79,6 +90,41 @@
         {% if user.is_staff %}
         </form>
         {% endif %}
+
+        {% if page_obj.paginator.num_pages > 1 %}
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center">
+                <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+                    {% if page_obj.has_previous %}
+                    <a class="page-link" href="{% url 'blog:post_list' %}?page={{ page_obj.previous_page_number }}&per_page={{ per_page }}{% if current_tag %}&tag={{ current_tag }}{% endif %}">
+                        &laquo; 이전
+                    </a>
+                    {% else %}
+                    <span class="page-link">&laquo; 이전</span>
+                    {% endif %}
+                </li>
+                {% for num in page_obj.paginator.page_range %}
+                    {% if num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+                    <li class="page-item {% if num == page_obj.number %}active{% endif %}">
+                        <a class="page-link" href="{% url 'blog:post_list' %}?page={{ num }}&per_page={{ per_page }}{% if current_tag %}&tag={{ current_tag }}{% endif %}">
+                            {{ num }}
+                        </a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+                <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+                    {% if page_obj.has_next %}
+                    <a class="page-link" href="{% url 'blog:post_list' %}?page={{ page_obj.next_page_number }}&per_page={{ per_page }}{% if current_tag %}&tag={{ current_tag }}{% endif %}">
+                        다음 &raquo;
+                    </a>
+                    {% else %}
+                    <span class="page-link">다음 &raquo;</span>
+                    {% endif %}
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+
         {% else %}
             <div class="alert alert-info">
                 {% if current_tag %}
