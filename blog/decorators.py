@@ -20,9 +20,8 @@ def api_auth_required(scope='read'):
                 return JsonResponse({'error': 'API 키가 비어있습니다.'}, status=401)
 
             from blog.models import APIKey
-            try:
-                api_key = APIKey.objects.select_related('user').get(key=raw_key)
-            except APIKey.DoesNotExist:
+            api_key = APIKey.check_key(raw_key)
+            if api_key is None:
                 return JsonResponse({'error': '유효하지 않은 API 키입니다.'}, status=401)
 
             if not api_key.is_active:

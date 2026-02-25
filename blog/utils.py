@@ -3,11 +3,27 @@ import re
 import uuid
 import zipfile
 
+import bleach
 import yaml
 import markdown
 from datetime import datetime, date
 
 from django.conf import settings
+
+
+ALLOWED_TAGS = [
+    'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'a', 'img', 'ul', 'ol', 'li',
+    'code', 'pre', 'blockquote',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'em', 'strong', 'br', 'hr', 'div', 'span',
+]
+ALLOWED_ATTRIBUTES = {
+    'a': ['href', 'title'],
+    'img': ['src', 'alt', 'title'],
+    'code': ['class'],
+}
+ALLOWED_PROTOCOLS = ['http', 'https', 'mailto']
 
 
 POSTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'posts')
@@ -73,16 +89,13 @@ def parse_post(filepath):
 
 
 def _sanitize_html(html):
-    """Markdown 렌더링 결과에서 위험한 HTML 태그와 속성을 제거합니다."""
-    # script, iframe, object, embed, form 태그 제거
-    html = re.sub(r'<\s*/?\s*(script|iframe|object|embed|form)\b[^>]*>', '', html, flags=re.IGNORECASE)
-    # on* 이벤트 핸들러 속성 제거 (onclick, onerror 등)
-    html = re.sub(r'\s+on\w+\s*=\s*["\'][^"\']*["\']', '', html, flags=re.IGNORECASE)
-    html = re.sub(r'\s+on\w+\s*=\s*[^\s>]+', '', html, flags=re.IGNORECASE)
-    # javascript: URL 스킴 제거
-    html = re.sub(r'href\s*=\s*["\']javascript:[^"\']*["\']', 'href="#"', html, flags=re.IGNORECASE)
-    html = re.sub(r'src\s*=\s*["\']javascript:[^"\']*["\']', 'src=""', html, flags=re.IGNORECASE)
-    return html
+    """Markdown 렌더링 결과에서 허용된 태그/속성만 남기고 제거합니다."""
+    return bleach.clean(
+        html,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        protocols=ALLOWED_PROTOCOLS,
+    )
 
 
 def get_all_posts():
@@ -130,7 +143,7 @@ def get_all_tags():
 # 파일 업로드 관련 유틸리티
 # ---------------------------------------------------------------------------
 
-IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'}
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
 _SKIP_PREFIXES = ('__MACOSX/', '.')
 _SKIP_NAMES = {'.DS_Store', 'Thumbs.db'}
 

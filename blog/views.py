@@ -99,7 +99,7 @@ def upload_image(request):
         return JsonResponse({'error': '파일 크기가 5MB를 초과합니다.'}, status=400)
 
     # 허용된 확장자 검증
-    allowed_exts = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'}
+    allowed_exts = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
     ext = os.path.splitext(image.name)[1].lower()
     if ext not in allowed_exts:
         return JsonResponse({'error': '허용되지 않는 파일 형식입니다.'}, status=400)
@@ -220,14 +220,19 @@ def api_key_create(request):
         except (ValueError, TypeError):
             pass
 
-    api_key = APIKey.objects.create(
+    from .models import generate_api_key
+    raw_key = generate_api_key()
+
+    api_key = APIKey(
         user=request.user,
         name=name,
         scope=scope,
         expires_at=expires_at,
     )
+    api_key.set_key(raw_key)
+    api_key.save()
 
-    request.session['new_api_key'] = api_key.key
+    request.session['new_api_key'] = raw_key
     return redirect('blog:api_key_list')
 
 

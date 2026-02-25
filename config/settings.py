@@ -23,7 +23,7 @@ load_dotenv(BASE_DIR / '.env')
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
+SECRET_KEY = os.environ['SECRET_KEY']
 
 DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 'yes')
 
@@ -152,8 +152,10 @@ AUTHENTICATION_BACKENDS = [
 
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
-ACCOUNT_LOGOUT_ON_GET = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
+
+# 일반 id/pw 회원가입·로그인 비활성화 (Google OAuth만 사용)
+ACCOUNT_ADAPTER = 'blog.adapters.NoSignupAccountAdapter'
 
 # Google OAuth — .env에서 클라이언트 정보를 읽어 설정 (DB에 Social App 등록 불필요)
 SOCIALACCOUNT_PROVIDERS = {
@@ -168,7 +170,7 @@ SOCIALACCOUNT_PROVIDERS = {
 }
 
 # 이 이메일로 Google 로그인 시 자동으로 관리자(staff) 권한 부여
-ADMIN_EMAILS = [e.strip() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()]
+OWNER_EMAIL = os.environ.get('OWNER_EMAIL', '').strip()
 
 # 프로덕션 보안 설정
 if not DEBUG:

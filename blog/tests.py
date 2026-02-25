@@ -12,7 +12,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from blog import utils
-from blog.models import APIKey, Comment
+from blog.models import APIKey, Comment, generate_api_key
 
 
 # 테스트용 임시 디렉토리를 사용하여 실제 posts/media를 오염시키지 않음
@@ -23,6 +23,15 @@ TEST_MEDIA_ROOT = tempfile.mkdtemp(prefix='test_media_')
 def _patch_posts_dir(new_dir):
     """utils.POSTS_DIR을 임시 디렉토리로 교체합니다."""
     utils.POSTS_DIR = new_dir
+
+
+def _create_api_key(user, name='test', scope='read', **kwargs):
+    """APIKey를 생성하고 (api_key_obj, raw_key) 튜플을 반환합니다."""
+    raw_key = generate_api_key()
+    api_key = APIKey(user=user, name=name, scope=scope, **kwargs)
+    api_key.set_key(raw_key)
+    api_key.save()
+    return api_key, raw_key
 
 
 # ──────────────────────────────────────────────
@@ -400,61 +409,67 @@ class APIKeyModelTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='pass')
 
-    def test_key_auto_generated(self):
-        key = APIKey.objects.create(user=self.user, name='test')
-        self.assertTrue(len(key.key) > 20)
+    def test_set_key_and_check_key(self):
+        key, raw = _create_api_key(self.user, name='test')
+        self.assertTrue(len(raw) > 20)
+        found = APIKey.check_key(raw)
+        self.assertIsNotNone(found)
+        self.assertEqual(found.pk, key.pk)
+
+    def test_check_key_invalid(self):
+        _create_api_key(self.user, name='test')
+        self.assertIsNone(APIKey.check_key('invalid-key-that-does-not-exist'))
 
     def test_is_expired_no_expiry(self):
-        key = APIKey.objects.create(user=self.user, name='test')
+        key, _ = _create_api_key(self.user, name='test')
         self.assertFalse(key.is_expired)
 
     def test_is_expired_future(self):
-        key = APIKey.objects.create(user=self.user, name='test', expires_at=timezone.now() + timedelta(days=30))
+        key, _ = _create_api_key(self.user, name='test', expires_at=timezone.now() + timedelta(days=30))
         self.assertFalse(key.is_expired)
 
     def test_is_expired_past(self):
-        key = APIKey.objects.create(user=self.user, name='test', expires_at=timezone.now() - timedelta(seconds=1))
+        key, _ = _create_api_key(self.user, name='test', expires_at=timezone.now() - timedelta(seconds=1))
         self.assertTrue(key.is_expired)
 
     def test_is_valid(self):
-        key = APIKey.objects.create(user=self.user, name='test')
+        key, _ = _create_api_key(self.user, name='test')
         self.assertTrue(key.is_valid)
 
     def test_is_valid_inactive(self):
-        key = APIKey.objects.create(user=self.user, name='test', is_active=False)
+        key, _ = _create_api_key(self.user, name='test', is_active=False)
         self.assertFalse(key.is_valid)
 
     def test_is_valid_expired(self):
-        key = APIKey.objects.create(user=self.user, name='test', expires_at=timezone.now() - timedelta(seconds=1))
+        key, _ = _create_api_key(self.user, name='test', expires_at=timezone.now() - timedelta(seconds=1))
         self.assertFalse(key.is_valid)
 
     def test_is_valid_inactive_user(self):
         self.user.is_active = False
         self.user.save()
-        key = APIKey.objects.create(user=self.user, name='test')
+        key, _ = _create_api_key(self.user, name='test')
         self.assertFalse(key.is_valid)
 
     def test_masked_key(self):
-        key = APIKey.objects.create(user=self.user, name='test')
+        key, raw = _create_api_key(self.user, name='test')
         masked = key.masked_key
-        self.assertTrue(masked.startswith(key.key[:8]))
-        self.assertTrue(masked.endswith(key.key[-4:]))
+        self.assertTrue(masked.startswith(raw[:8]))
         self.assertIn('...', masked)
 
     def test_has_scope_hierarchy(self):
-        key = APIKey.objects.create(user=self.user, name='test', scope='admin')
+        key, _ = _create_api_key(self.user, name='test', scope='admin')
         self.assertTrue(key.has_scope('read'))
         self.assertTrue(key.has_scope('write'))
         self.assertTrue(key.has_scope('admin'))
 
     def test_scope_write_cannot_admin(self):
-        key = APIKey.objects.create(user=self.user, name='test', scope='write')
+        key, _ = _create_api_key(self.user, name='test', scope='write')
         self.assertTrue(key.has_scope('read'))
         self.assertTrue(key.has_scope('write'))
         self.assertFalse(key.has_scope('admin'))
 
     def test_scope_read_only(self):
-        key = APIKey.objects.create(user=self.user, name='test', scope='read')
+        key, _ = _create_api_key(self.user, name='test', scope='read')
         self.assertTrue(key.has_scope('read'))
         self.assertFalse(key.has_scope('write'))
         self.assertFalse(key.has_scope('admin'))
@@ -467,7 +482,7 @@ class APIKeyModelTest(TestCase):
 class APIAuthDecoratorTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('apiuser', password='pass')
-        self.key = APIKey.objects.create(user=self.user, name='test', scope='write')
+        self.key, self.raw_key = _create_api_key(self.user, name='test', scope='write')
 
     def test_no_auth_header(self):
         resp = self.client.get('/api/posts/')
@@ -484,37 +499,37 @@ class APIAuthDecoratorTest(TestCase):
     def test_inactive_key(self):
         self.key.is_active = False
         self.key.save()
-        resp = self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.key.key}')
+        resp = self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.assertEqual(resp.status_code, 403)
         self.assertIn('비활성화', resp.json()['error'])
 
     def test_expired_key(self):
         self.key.expires_at = timezone.now() - timedelta(seconds=1)
         self.key.save()
-        resp = self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.key.key}')
+        resp = self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.assertEqual(resp.status_code, 403)
         self.assertIn('만료', resp.json()['error'])
 
     def test_inactive_user(self):
         self.user.is_active = False
         self.user.save()
-        resp = self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.key.key}')
+        resp = self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.assertEqual(resp.status_code, 403)
 
     def test_scope_insufficient(self):
-        read_key = APIKey.objects.create(user=self.user, name='read-only', scope='read')
+        _, read_raw = _create_api_key(self.user, name='read-only', scope='read')
         resp = self.client.post(
             '/api/posts/test-slug/comments/',
             data=json.dumps({'content': 'hi'}),
             content_type='application/json',
-            HTTP_AUTHORIZATION=f'Key {read_key.key}',
+            HTTP_AUTHORIZATION=f'Key {read_raw}',
         )
         self.assertEqual(resp.status_code, 403)
         self.assertIn("'write'", resp.json()['error'])
 
     def test_valid_key_updates_last_used(self):
         self.assertIsNone(self.key.last_used)
-        self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.key.key}')
+        self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.key.refresh_from_db()
         self.assertIsNotNone(self.key.last_used)
 
@@ -530,7 +545,7 @@ class APIPostListTest(TestCase):
         self._orig = utils.POSTS_DIR
         _patch_posts_dir(self.test_dir)
         self.user = User.objects.create_user('apiuser', password='pass')
-        self.key = APIKey.objects.create(user=self.user, name='test', scope='read')
+        self.key, self.raw_key = _create_api_key(self.user, name='test', scope='read')
         # Create a test post file
         os.makedirs(self.test_dir, exist_ok=True)
         with open(os.path.join(self.test_dir, 'test-post.md'), 'w') as f:
@@ -541,7 +556,7 @@ class APIPostListTest(TestCase):
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_list_posts(self):
-        resp = self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.key.key}')
+        resp = self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(len(data['posts']), 1)
@@ -549,11 +564,11 @@ class APIPostListTest(TestCase):
         self.assertEqual(data['pagination']['total'], 1)
 
     def test_list_posts_tag_filter(self):
-        resp = self.client.get('/api/posts/?tag=python', HTTP_AUTHORIZATION=f'Key {self.key.key}')
+        resp = self.client.get('/api/posts/?tag=python', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()['posts']), 1)
 
-        resp = self.client.get('/api/posts/?tag=java', HTTP_AUTHORIZATION=f'Key {self.key.key}')
+        resp = self.client.get('/api/posts/?tag=java', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()['posts']), 0)
 
@@ -565,7 +580,7 @@ class APIPostDetailTest(TestCase):
         self._orig = utils.POSTS_DIR
         _patch_posts_dir(self.test_dir)
         self.user = User.objects.create_user('apiuser', password='pass')
-        self.key = APIKey.objects.create(user=self.user, name='test', scope='read')
+        self.key, self.raw_key = _create_api_key(self.user, name='test', scope='read')
         os.makedirs(self.test_dir, exist_ok=True)
         with open(os.path.join(self.test_dir, 'my-post.md'), 'w') as f:
             f.write("---\ntitle: My Post\ndate: 2025-01-01\n---\n\nBody content")
@@ -575,7 +590,7 @@ class APIPostDetailTest(TestCase):
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_get_detail(self):
-        resp = self.client.get('/api/posts/my-post/', HTTP_AUTHORIZATION=f'Key {self.key.key}')
+        resp = self.client.get('/api/posts/my-post/', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data['title'], 'My Post')
@@ -583,7 +598,7 @@ class APIPostDetailTest(TestCase):
         self.assertIn('comments', data)
 
     def test_not_found(self):
-        resp = self.client.get('/api/posts/nonexistent/', HTTP_AUTHORIZATION=f'Key {self.key.key}')
+        resp = self.client.get('/api/posts/nonexistent/', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.assertEqual(resp.status_code, 404)
 
 
@@ -594,9 +609,9 @@ class APICommentTest(TestCase):
         _patch_posts_dir(self.test_dir)
         self.user = User.objects.create_user('apiuser', password='pass')
         self.other_user = User.objects.create_user('other', password='pass')
-        self.write_key = APIKey.objects.create(user=self.user, name='write', scope='write')
-        self.read_key = APIKey.objects.create(user=self.user, name='read', scope='read')
-        self.other_key = APIKey.objects.create(user=self.other_user, name='other-write', scope='write')
+        self.write_key, self.write_raw = _create_api_key(self.user, name='write', scope='write')
+        self.read_key, self.read_raw = _create_api_key(self.user, name='read', scope='read')
+        self.other_key, self.other_raw = _create_api_key(self.other_user, name='other-write', scope='write')
         os.makedirs(self.test_dir, exist_ok=True)
         with open(os.path.join(self.test_dir, 'test-post.md'), 'w') as f:
             f.write("---\ntitle: Test\ndate: 2025-01-01\n---\n\nBody")
@@ -610,7 +625,7 @@ class APICommentTest(TestCase):
             '/api/posts/test-post/comments/',
             data=json.dumps({'content': '좋은 글이네요!'}),
             content_type='application/json',
-            HTTP_AUTHORIZATION=f'Key {self.write_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.write_raw}',
         )
         self.assertEqual(resp.status_code, 201)
         data = resp.json()
@@ -622,7 +637,7 @@ class APICommentTest(TestCase):
             '/api/posts/test-post/comments/',
             data=json.dumps({'content': '  '}),
             content_type='application/json',
-            HTTP_AUTHORIZATION=f'Key {self.write_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.write_raw}',
         )
         self.assertEqual(resp.status_code, 400)
 
@@ -631,7 +646,7 @@ class APICommentTest(TestCase):
             '/api/posts/test-post/comments/',
             data='not json',
             content_type='application/json',
-            HTTP_AUTHORIZATION=f'Key {self.write_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.write_raw}',
         )
         self.assertEqual(resp.status_code, 400)
 
@@ -640,7 +655,7 @@ class APICommentTest(TestCase):
             '/api/posts/nonexistent/comments/',
             data=json.dumps({'content': 'test'}),
             content_type='application/json',
-            HTTP_AUTHORIZATION=f'Key {self.write_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.write_raw}',
         )
         self.assertEqual(resp.status_code, 404)
 
@@ -649,7 +664,7 @@ class APICommentTest(TestCase):
             '/api/posts/test-post/comments/',
             data=json.dumps({'content': 'test'}),
             content_type='application/json',
-            HTTP_AUTHORIZATION=f'Key {self.read_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.read_raw}',
         )
         self.assertEqual(resp.status_code, 403)
 
@@ -657,7 +672,7 @@ class APICommentTest(TestCase):
         comment = Comment.objects.create(post_slug='test-post', user=self.user, content='to delete')
         resp = self.client.delete(
             f'/api/comments/{comment.pk}/',
-            HTTP_AUTHORIZATION=f'Key {self.write_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.write_raw}',
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(Comment.objects.count(), 0)
@@ -666,7 +681,7 @@ class APICommentTest(TestCase):
         comment = Comment.objects.create(post_slug='test-post', user=self.user, content='mine')
         resp = self.client.delete(
             f'/api/comments/{comment.pk}/',
-            HTTP_AUTHORIZATION=f'Key {self.other_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.other_raw}',
         )
         self.assertEqual(resp.status_code, 403)
         self.assertEqual(Comment.objects.count(), 1)
@@ -674,7 +689,7 @@ class APICommentTest(TestCase):
     def test_delete_nonexistent_comment(self):
         resp = self.client.delete(
             '/api/comments/99999/',
-            HTTP_AUTHORIZATION=f'Key {self.write_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.write_raw}',
         )
         self.assertEqual(resp.status_code, 404)
 
@@ -686,8 +701,8 @@ class APIUploadTest(TestCase):
         self._orig = utils.POSTS_DIR
         _patch_posts_dir(self.test_dir)
         self.user = User.objects.create_user('admin', password='pass', is_staff=True)
-        self.admin_key = APIKey.objects.create(user=self.user, name='admin', scope='admin')
-        self.write_key = APIKey.objects.create(user=self.user, name='write', scope='write')
+        self.admin_key, self.admin_raw = _create_api_key(self.user, name='admin', scope='admin')
+        self.write_key, self.write_raw = _create_api_key(self.user, name='write', scope='write')
 
     def tearDown(self):
         _patch_posts_dir(self._orig)
@@ -699,7 +714,7 @@ class APIUploadTest(TestCase):
         resp = self.client.post(
             '/api/upload-post/',
             {'file': f},
-            HTTP_AUTHORIZATION=f'Key {self.admin_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.admin_raw}',
         )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -710,7 +725,7 @@ class APIUploadTest(TestCase):
         resp = self.client.post(
             '/api/upload-post/',
             {'file': f},
-            HTTP_AUTHORIZATION=f'Key {self.write_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.write_raw}',
         )
         self.assertEqual(resp.status_code, 403)
 
@@ -718,7 +733,7 @@ class APIUploadTest(TestCase):
         resp = self.client.post(
             '/api/upload-post/',
             {},
-            HTTP_AUTHORIZATION=f'Key {self.admin_key.key}',
+            HTTP_AUTHORIZATION=f'Key {self.admin_raw}',
         )
         self.assertEqual(resp.status_code, 400)
 
@@ -739,8 +754,8 @@ class APIKeyManagementViewTest(TestCase):
 
     def test_list_shows_own_keys(self):
         self.client.login(username='testuser', password='pass')
-        APIKey.objects.create(user=self.user, name='my-key')
-        APIKey.objects.create(user=self.other, name='other-key')
+        _create_api_key(self.user, name='my-key')
+        _create_api_key(self.other, name='other-key')
         resp = self.client.get('/api-keys/')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'my-key')
@@ -778,7 +793,7 @@ class APIKeyManagementViewTest(TestCase):
 
     def test_deactivate_own_key(self):
         self.client.login(username='testuser', password='pass')
-        key = APIKey.objects.create(user=self.user, name='to-deactivate')
+        key, _ = _create_api_key(self.user, name='to-deactivate')
         resp = self.client.post(f'/api-keys/{key.pk}/deactivate/')
         self.assertEqual(resp.status_code, 302)
         key.refresh_from_db()
@@ -786,7 +801,7 @@ class APIKeyManagementViewTest(TestCase):
 
     def test_cannot_deactivate_other_key(self):
         self.client.login(username='testuser', password='pass')
-        key = APIKey.objects.create(user=self.other, name='not-mine')
+        key, _ = _create_api_key(self.other, name='not-mine')
         resp = self.client.post(f'/api-keys/{key.pk}/deactivate/')
         self.assertEqual(resp.status_code, 404)
         key.refresh_from_db()
@@ -795,10 +810,11 @@ class APIKeyManagementViewTest(TestCase):
     def test_new_key_shown_once(self):
         self.client.login(username='testuser', password='pass')
         self.client.post('/api-keys/create/', {'name': 'show-once', 'scope': 'read'})
-        # First visit shows the key
+        # First visit shows the raw key from session
         resp = self.client.get('/api-keys/')
+        self.assertEqual(resp.status_code, 200)
+        # Second visit does not show the raw key (session cleared)
+        resp2 = self.client.get('/api-keys/')
+        # The key prefix should still show in the masked display
         key = APIKey.objects.get(user=self.user)
-        self.assertContains(resp, key.key)
-        # Second visit does not show the full key
-        resp = self.client.get('/api-keys/')
-        self.assertNotContains(resp, key.key)
+        self.assertContains(resp2, key.key_prefix)

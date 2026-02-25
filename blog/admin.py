@@ -8,7 +8,7 @@ class APIKeyAdmin(admin.ModelAdmin):
     list_display = ('name', 'user', 'scope', 'masked_key', 'is_active', 'is_expired', 'created_at', 'last_used')
     list_filter = ('scope', 'is_active', 'created_at')
     search_fields = ('name', 'user__username')
-    readonly_fields = ('key', 'created_at', 'last_used')
+    readonly_fields = ('key_prefix', 'key_hash', 'created_at', 'last_used')
 
     def masked_key(self, obj):
         return obj.masked_key
