@@ -5,6 +5,23 @@
 {% block main_class %}container-fluid px-4{% endblock %}
 
 {% block content %}
+<!-- 파일 업로드 섹션 -->
+<div class="card mb-3">
+    <div class="card-header p-2" style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#upload-section">
+        <strong>파일로 글 올리기</strong>
+        <small class="text-muted ms-2">(.md 또는 이미지 포함 .zip)</small>
+    </div>
+    <div class="collapse" id="upload-section">
+        <div class="card-body py-2">
+            <div class="d-flex align-items-center gap-2">
+                <input type="file" id="post-file-input" class="form-control form-control-sm" accept=".md,.zip" style="max-width:400px">
+                <button type="button" id="post-file-upload-btn" class="btn btn-sm btn-success" disabled>업로드</button>
+                <span id="post-file-status" class="text-muted small"></span>
+            </div>
+        </div>
+    </div>
+</div>
+
 <form method="post" id="editor-form">
     {% csrf_token %}
 
@@ -302,5 +319,56 @@ function toggleLayout() {
         btn.innerHTML = '&#x25eb; 좌우';
     }
 }
+
+// ---- 파일 업로드 (MD/ZIP) ----
+const postFileInput = document.getElementById('post-file-input');
+const postFileBtn = document.getElementById('post-file-upload-btn');
+const postFileStatus = document.getElementById('post-file-status');
+
+postFileInput.addEventListener('change', () => {
+    postFileBtn.disabled = !postFileInput.files.length;
+    postFileStatus.textContent = '';
+});
+
+postFileBtn.addEventListener('click', async () => {
+    const file = postFileInput.files[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'md' && ext !== 'zip') {
+        postFileStatus.textContent = '.md 또는 .zip 파일만 가능합니다.';
+        postFileStatus.className = 'text-danger small';
+        return;
+    }
+
+    postFileBtn.disabled = true;
+    postFileStatus.textContent = '업로드 중...';
+    postFileStatus.className = 'text-muted small';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const res = await fetch("{% url 'blog:post_upload' %}", {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrfToken },
+            body: formData,
+        });
+        const data = await res.json();
+        if (data.url) {
+            postFileStatus.textContent = '성공! 이동 중...';
+            postFileStatus.className = 'text-success small';
+            window.location.href = data.url;
+        } else {
+            postFileStatus.textContent = data.error || '업로드 실패';
+            postFileStatus.className = 'text-danger small';
+            postFileBtn.disabled = false;
+        }
+    } catch (e) {
+        postFileStatus.textContent = '업로드 중 오류가 발생했습니다.';
+        postFileStatus.className = 'text-danger small';
+        postFileBtn.disabled = false;
+    }
+});
 </script>
 {% endblock %}

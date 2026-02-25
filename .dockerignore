@@ -1,0 +1,36 @@
+# 환경변수 / 시크릿
+.env
+.env.*
+!.env.sample
+
+# 데이터베이스
+*.sqlite3
+db.sqlite3
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Git
+.git/
+.gitignore
+
+# 미디어 (런타임 볼륨으로 마운트)
+media/
+
+# IDE / 에디터
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code
+.claude/
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
