@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import uuid
@@ -7,6 +8,7 @@ import bleach
 import yaml
 import markdown
 from datetime import datetime, date
+from pathlib import Path
 
 from django.conf import settings
 from django.utils import timezone
@@ -49,6 +51,53 @@ def extract_thumbnail_url(body_md):
     if match:
         return match.group(1)
     return ''
+
+
+def generate_thumbnail(image_url, max_width=240, max_height=180):
+    """로컬 이미지 URL에서 WebP 썸네일을 생성하고 썸네일 URL을 반환합니다.
+    외부 URL이거나 파일이 없으면 원본 URL을 그대로 반환합니다."""
+    if not image_url:
+        return ''
+
+    # 외부 URL은 그대로 반환
+    if image_url.startswith(('http://', 'https://')):
+        return image_url
+
+    # /media/로 시작하는 로컬 경로만 처리
+    media_url = settings.MEDIA_URL  # '/media/'
+    if not image_url.startswith(media_url):
+        return image_url
+
+    # 원본 파일의 실제 경로 계산
+    relative_path = image_url[len(media_url):]
+    source_path = Path(settings.MEDIA_ROOT) / relative_path
+
+    if not source_path.is_file():
+        return image_url
+
+    # 썸네일 파일명: 원본 경로 기반 해시
+    url_hash = hashlib.md5(image_url.encode()).hexdigest()[:12]
+    thumb_filename = f"thumb_{url_hash}.webp"
+    thumb_dir = Path(settings.MEDIA_ROOT) / 'thumbnails'
+    thumb_path = thumb_dir / thumb_filename
+    thumb_url = f"{media_url}thumbnails/{thumb_filename}"
+
+    # 이미 썸네일이 존재하면 재생성하지 않음
+    if thumb_path.is_file():
+        return thumb_url
+
+    try:
+        from PIL import Image
+
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+
+        with Image.open(source_path) as img:
+            img.thumbnail((max_width, max_height))
+            img.save(thumb_path, format='WEBP', quality=80)
+
+        return thumb_url
+    except Exception:
+        return image_url
 
 
 def make_slug(title):

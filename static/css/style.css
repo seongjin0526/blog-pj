@@ -54,3 +54,62 @@ main {
 .card-title a:hover {
     color: #0d6efd;
 }
+
+/* 글 목록 썸네일 */
+.post-thumbnail {
+    width: 120px;
+    height: 90px;
+    object-fit: cover;
+}
+
+/* min-width: 0 for flex text truncation */
+.min-width-0 {
+    min-width: 0;
+}
+
+/* ── 모바일 (768px 미만) ── */
+@media (max-width: 767.98px) {
+    /* 네비게이션 */
+    .navbar-brand {
+        font-size: 1rem;
+    }
+
+    /* 썸네일 축소 */
+    .post-thumbnail {
+        width: 72px;
+        height: 54px;
+    }
+
+    /* 카드 제목 */
+    .post-card .card-title {
+        font-size: 0.88rem;
+        line-height: 1.3;
+    }
+
+    /* 날짜 */
+    .post-date {
+        font-size: 0.7rem;
+    }
+
+    /* 태그 뱃지 */
+    .post-tags .badge {
+        font-size: 0.65rem;
+        padding: 0.2em 0.45em;
+    }
+
+    /* 태그 필터 영역 */
+    .tag-filter .badge {
+        font-size: 0.7rem;
+    }
+
+    /* 페이지네이션 */
+    .pagination .page-link {
+        font-size: 0.8rem;
+        padding: 0.3rem 0.6rem;
+    }
+
+    /* 푸터 */
+    footer p {
+        font-size: 0.75rem;
+    }
+}

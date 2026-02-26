@@ -28,10 +28,11 @@ class Post(models.Model):
         return self.title
 
     def save(self, **kwargs):
-        from .utils import render_markdown, extract_thumbnail_url
+        from .utils import render_markdown, extract_thumbnail_url, generate_thumbnail
         if self.body_md:
             self.body_html = render_markdown(self.body_md)
-            self.thumbnail_url = extract_thumbnail_url(self.body_md)
+            original_url = extract_thumbnail_url(self.body_md)
+            self.thumbnail_url = generate_thumbnail(original_url) if original_url else ''
         super().save(**kwargs)
 
 
