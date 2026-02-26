@@ -61,6 +61,59 @@ python manage.py runserver
 python manage.py test blog
 ```
 
+## Docker Compose 실행 (프로덕션)
+
+### 1. 환경변수 설정
+
+`.env.sample`을 복사하여 `.env`를 만들고 값을 채웁니다.
+
+```bash
+cp .env.sample .env
+```
+
+DB 관련 환경변수:
+
+```env
+DB_ENGINE=django.db.backends.postgresql
+DB_NAME=blog
+DB_USER=blog_user
+DB_PASSWORD=your-secure-password
+DB_HOST=db
+DB_PORT=5432
+```
+
+### 2. 전체 스택 실행
+
+```bash
+docker compose up --build
+```
+
+- PostgreSQL(db) 준비 완료 후 Django(web) 자동 시작
+- 마이그레이션은 web 컨테이너 시작 시 자동 실행
+- `http://localhost:8000/` 에서 접속
+
+### 3. 관리자 생성
+
+```bash
+docker compose exec web python manage.py createsuperuser
+```
+
+### 4. 테스트 실행
+
+```bash
+docker compose run --rm test
+```
+
+PostgreSQL 환경에서 전체 테스트를 실행합니다.
+
+### 5. 종료
+
+```bash
+docker compose down
+```
+
+데이터는 Docker 볼륨(`postgres_data`, `media_data`)에 보존됩니다.
+
 ## Google OAuth 설정
 
 ### Google Cloud Console
