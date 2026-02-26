@@ -80,6 +80,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 
+
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
@@ -161,6 +162,7 @@ SOCIALACCOUNT_LOGIN_ON_GET = True
 
 # 일반 id/pw 회원가입·로그인 비활성화 (Google OAuth만 사용)
 ACCOUNT_ADAPTER = 'blog.adapters.NoSignupAccountAdapter'
+SOCIALACCOUNT_ADAPTER = 'blog.adapters.SocialAccountAdapter'
 
 # Google OAuth — .env에서 클라이언트 정보를 읽어 설정 (DB에 Social App 등록 불필요)
 SOCIALACCOUNT_PROVIDERS = {

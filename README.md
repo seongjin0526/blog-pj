@@ -35,7 +35,8 @@ docker compose up --build
 
 - PostgreSQL(db) healthcheck 통과 후 Django(web) 자동 시작
 - 마이그레이션은 web 컨테이너 시작 시 자동 실행
-- `http://localhost:8000/` 에서 접속
+- 소스코드 바인드 마운트 + `runserver` — 코드 수정 시 자동 리로드 (재빌드 불필요)
+- `http://127.0.0.1:8000/` 에서 접속
 
 ### 3. Site 도메인 설정
 
@@ -63,7 +64,7 @@ docker compose run --rm test
 docker compose down
 ```
 
-데이터는 Docker 볼륨(`postgres_data`, `media_data`)에 보존됩니다.
+데이터는 Docker 볼륨(`postgres_data`)과 로컬 `media/` 디렉토리에 보존됩니다.
 
 ## 프로덕션 배포
 
@@ -86,6 +87,18 @@ DB_PASSWORD=<강력한 비밀번호>
 | `CSRF_TRUSTED_ORIGINS` | HTTPS 도메인 (예: `https://your-domain.com`). 미설정 시 POST 요청 403 |
 | `SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(50))"` 으로 생성 |
 | `DB_PASSWORD` | 강력한 비밀번호로 변경 |
+
+### 실행 방식
+
+개발 환경과 달리 프로덕션에서는 gunicorn으로 서빙합니다. `docker-compose.yml`의 web 서비스 command를 변경합니다.
+
+```yaml
+command: >
+  sh -c "python manage.py migrate --noinput &&
+         gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+```
+
+소스코드 바인드 마운트(`.:/app`)도 제거하고, 이미지에 포함된 코드를 사용합니다.
 
 ### Static 파일
 

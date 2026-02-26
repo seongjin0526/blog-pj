@@ -1,27 +1,24 @@
 from django.conf import settings
 from django.dispatch import receiver
 
-from allauth.account.signals import user_logged_in
+from allauth.socialaccount.signals import pre_social_login
 
 
-@receiver(user_logged_in)
-def grant_staff_to_owner(sender, request, user, **kwargs):
+@receiver(pre_social_login)
+def grant_staff_to_owner(sender, request, sociallogin, **kwargs):
     owner_email = getattr(settings, 'OWNER_EMAIL', '')
     if not owner_email:
         return
 
+    user = sociallogin.user
     if user.is_staff:
         return
 
-    # socialaccount에서 verified 이메일만 수집
-    verified_emails = set()
-    for sa in user.socialaccount_set.all():
-        if sa.extra_data.get('email_verified', False):
-            sa_email = sa.extra_data.get('email', '')
-            if sa_email:
-                verified_emails.add(sa_email)
+    email = sociallogin.account.extra_data.get('email', '')
+    email_verified = sociallogin.account.extra_data.get('email_verified', False)
 
-    if owner_email in verified_emails:
+    if email_verified and email == owner_email:
         user.is_staff = True
         user.is_superuser = True
-        user.save(update_fields=['is_staff', 'is_superuser'])
+        if user.pk:
+            user.save(update_fields=['is_staff', 'is_superuser'])
