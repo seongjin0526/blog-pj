@@ -1,7 +1,10 @@
-from django.urls import include, path
+from django.urls import include, path, re_path
 from . import views
 
 app_name = 'blog'
+
+# 한글 slug를 허용하는 패턴
+_SLUG = r'(?P<slug>[-\w]+)'
 
 urlpatterns = [
     path('', views.post_list, name='post_list'),
@@ -9,9 +12,9 @@ urlpatterns = [
     path('upload-image/', views.upload_image, name='upload_image'),
     path('upload-post/', views.post_upload, name='post_upload'),
     path('delete-posts/', views.post_bulk_delete, name='post_bulk_delete'),
-    path('post/<slug:slug>/edit/', views.post_edit, name='post_edit'),
-    path('post/<slug:slug>/', views.post_detail, name='post_detail'),
-    path('post/<slug:slug>/comment/', views.comment_create, name='comment_create'),
+    re_path(rf'post/{_SLUG}/edit/$', views.post_edit, name='post_edit'),
+    re_path(rf'post/{_SLUG}/$', views.post_detail, name='post_detail'),
+    re_path(rf'post/{_SLUG}/comment/$', views.comment_create, name='comment_create'),
     path('comment/<int:pk>/delete/', views.comment_delete, name='comment_delete'),
     path('login/', views.google_login_check, name='google_login_check'),
     # API

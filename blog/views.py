@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
@@ -12,21 +12,28 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
+from datetime import timedelta
 
-from .models import APIKey, Comment
+from .models import APIKey, Comment, Post
 from .utils import (
-    get_all_posts, get_all_tags, get_post_by_slug, make_slug,
-    process_uploaded_md, process_uploaded_zip,
-    extract_frontmatter_and_body, rebuild_md_content, POSTS_DIR,
+    make_slug, process_uploaded_md, process_uploaded_zip,
+    extract_frontmatter_and_body, _parse_date, _parse_tags,
 )
 
 
 def post_list(request):
     tag = request.GET.get('tag', '').strip()
-    posts = get_all_posts()
+    posts = Post.objects.all()
     if tag:
-        posts = [p for p in posts if tag in p['tags']]
-    all_tags = get_all_tags()
+        posts = [p for p in posts if tag in p.tags]
+
+    # 태그 집계
+    all_posts = Post.objects.all()
+    tag_count = {}
+    for p in all_posts:
+        for t in p.tags:
+            tag_count[t] = tag_count.get(t, 0) + 1
+    all_tags = sorted(tag_count.items(), key=lambda x: x[1], reverse=True)
 
     per_page_options = [10, 20, 50, 100]
     try:
@@ -50,10 +57,8 @@ def post_list(request):
 
 
 def post_detail(request, slug):
-    post = get_post_by_slug(slug)
-    if post is None:
-        raise Http404("글을 찾을 수 없습니다.")
-    comments = Comment.objects.filter(post_slug=slug).select_related('user')
+    post = get_object_or_404(Post, slug=slug)
+    comments = post.comments.select_related('user')
     return render(request, 'blog/post_detail.html', {
         'post': post,
         'comments': comments,
@@ -79,28 +84,22 @@ def post_create(request):
             })
 
         slug = make_slug(title)
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-        # 태그를 YAML 리스트로 변환
         tags = [t.strip() for t in tags_raw.split(',') if t.strip()]
-        tags_yaml = ', '.join(tags)
 
-        md_content = f"---\ntitle: {title}\ndate: {now}\nsummary: {summary}\ntags: [{tags_yaml}]\n---\n\n{body}\n"
+        # slug 충돌 처리
+        from .utils import _unique_slug
+        final_slug = _unique_slug(slug)
 
-        os.makedirs(POSTS_DIR, exist_ok=True)
-        filepath = os.path.join(POSTS_DIR, f'{slug}.md')
+        post = Post.objects.create(
+            title=title,
+            slug=final_slug,
+            summary=summary,
+            tags=tags,
+            body_md=body,
+            created_at=timezone.now(),
+        )
 
-        # 같은 slug가 있으면 숫자 붙이기
-        counter = 1
-        while os.path.exists(filepath):
-            filepath = os.path.join(POSTS_DIR, f'{slug}-{counter}.md')
-            counter += 1
-
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(md_content)
-
-        final_slug = os.path.splitext(os.path.basename(filepath))[0]
-        return redirect('blog:post_detail', slug=final_slug)
+        return redirect('blog:post_detail', slug=post.slug)
 
     return render(request, 'blog/post_editor.html')
 
@@ -173,22 +172,14 @@ def post_upload(request):
 @require_POST
 def post_bulk_delete(request):
     slugs = request.POST.getlist('slugs')
-    for slug in slugs:
-        # slug 검증: 파일명으로만 사용되도록 경로 구분자 차단
-        if '/' in slug or '\\' in slug or '..' in slug:
-            continue
-        filepath = os.path.join(POSTS_DIR, f'{slug}.md')
-        if os.path.exists(filepath):
-            os.remove(filepath)
+    Post.objects.filter(slug__in=slugs).delete()
     return redirect('blog:post_list')
 
 
 @never_cache
 @staff_member_required(login_url='/')
 def post_edit(request, slug):
-    filepath = os.path.join(POSTS_DIR, f'{slug}.md')
-    if not os.path.exists(filepath):
-        raise Http404("글을 찾을 수 없습니다.")
+    post = get_object_or_404(Post, slug=slug)
 
     if request.method == 'POST':
         title = request.POST.get('title', '').strip()
@@ -207,55 +198,31 @@ def post_edit(request, slug):
                 'edit_slug': slug,
             })
 
-        # 기존 frontmatter에서 date 보존
-        with open(filepath, 'r', encoding='utf-8') as f:
-            old_content = f.read()
-        old_meta, _ = extract_frontmatter_and_body(old_content)
-        date_str = old_meta.get('date', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-
         tags = [t.strip() for t in tags_raw.split(',') if t.strip()]
-        meta = {
-            'title': title,
-            'date': date_str,
-            'summary': summary,
-            'tags': tags,
-        }
-        md_content = rebuild_md_content(meta, body)
-
         new_slug = make_slug(title)
+
         if new_slug != slug:
-            # slug 변경 시 기존 파일 삭제 + 새 파일 생성
-            os.remove(filepath)
-            new_filepath = os.path.join(POSTS_DIR, f'{new_slug}.md')
-            counter = 1
-            while os.path.exists(new_filepath):
-                new_filepath = os.path.join(POSTS_DIR, f'{new_slug}-{counter}.md')
-                new_slug = f'{make_slug(title)}-{counter}'
-                counter += 1
-            with open(new_filepath, 'w', encoding='utf-8') as f:
-                f.write(md_content)
-            return redirect('blog:post_detail', slug=new_slug)
-        else:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(md_content)
-            return redirect('blog:post_detail', slug=slug)
+            # slug 변경 시 충돌 처리
+            from .utils import _unique_slug
+            new_slug = _unique_slug(new_slug)
 
-    # GET: 기존 파일 읽어서 에디터에 전달
-    with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
-    meta, body = extract_frontmatter_and_body(content)
+        post.title = title
+        post.slug = new_slug
+        post.summary = summary
+        post.tags = tags
+        post.body_md = body
+        # created_at 보존, save()에서 body_html/thumbnail_url 자동 갱신
+        post.save()
+        return redirect('blog:post_detail', slug=post.slug)
 
-    raw_tags = meta.get('tags', [])
-    if isinstance(raw_tags, list):
-        tags_str = ', '.join(str(t) for t in raw_tags)
-    else:
-        tags_str = str(raw_tags)
+    # GET: 에디터에 전달
+    tags_str = ', '.join(str(t) for t in post.tags) if isinstance(post.tags, list) else str(post.tags)
 
     return render(request, 'blog/post_editor.html', {
-        'title': meta.get('title', ''),
-        'summary': meta.get('summary', ''),
+        'title': post.title,
+        'summary': post.summary,
         'tags': tags_str,
-        'body': body,
+        'body': post.body_md,
         'edit_mode': True,
         'edit_slug': slug,
     })
@@ -277,13 +244,11 @@ def google_login_check(request):
 @login_required
 @require_POST
 def comment_create(request, slug):
-    post = get_post_by_slug(slug)
-    if post is None:
-        raise Http404("글을 찾을 수 없습니다.")
+    post = get_object_or_404(Post, slug=slug)
     content = request.POST.get('content', '').strip()
     if content:
         Comment.objects.create(
-            post_slug=slug,
+            post=post,
             user=request.user,
             content=content,
         )
@@ -294,7 +259,7 @@ def comment_create(request, slug):
 @require_POST
 def comment_delete(request, pk):
     comment = get_object_or_404(Comment, pk=pk, user=request.user)
-    slug = comment.post_slug
+    slug = comment.post.slug
     comment.delete()
     return redirect('blog:post_detail', slug=slug)
 
@@ -367,5 +332,3 @@ def api_guide(request):
 @staff_member_required(login_url='/')
 def api_admin_guide(request):
     return render(request, 'blog/api_admin_guide.html')
-
-

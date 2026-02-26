@@ -9,6 +9,7 @@ import markdown
 from datetime import datetime, date
 
 from django.conf import settings
+from django.utils import timezone
 
 
 ALLOWED_TAGS = [
@@ -26,34 +27,41 @@ ALLOWED_ATTRIBUTES = {
 ALLOWED_PROTOCOLS = ['http', 'https', 'mailto']
 
 
-POSTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'posts')
+def _sanitize_html(html):
+    """Markdown 렌더링 결과에서 허용된 태그/속성만 남기고 제거합니다."""
+    return bleach.clean(
+        html,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        protocols=ALLOWED_PROTOCOLS,
+    )
 
 
-def parse_post(filepath):
-    """마크다운 파일을 파싱하여 메타데이터와 HTML 본문을 반환합니다."""
-    with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
+def render_markdown(body_md):
+    """마크다운 텍스트를 sanitized HTML로 변환합니다."""
+    html = markdown.markdown(body_md, extensions=['fenced_code', 'tables'])
+    return _sanitize_html(html)
 
-    # frontmatter와 본문 분리
-    if content.startswith('---'):
-        parts = content.split('---', 2)
-        if len(parts) >= 3:
-            meta = yaml.safe_load(parts[1])
-            body_md = parts[2].strip()
-        else:
-            meta = {}
-            body_md = content
-    else:
-        meta = {}
-        body_md = content
 
-    body_html = markdown.markdown(body_md, extensions=['fenced_code', 'tables'])
-    body_html = _sanitize_html(body_html)
+def extract_thumbnail_url(body_md):
+    """마크다운 본문에서 첫 번째 이미지 URL을 추출합니다."""
+    match = re.search(r'!\[[^\]]*\]\(([^)]+)\)', body_md)
+    if match:
+        return match.group(1)
+    return ''
 
-    slug = os.path.splitext(os.path.basename(filepath))[0]
 
-    # datetime 파싱 (시분초 포함)
-    raw_date = meta.get('date', datetime.now())
+def make_slug(title):
+    """제목에서 slug를 생성합니다."""
+    slug = title.lower().strip()
+    slug = re.sub(r'[^\w\s가-힣-]', '', slug)
+    slug = re.sub(r'[\s]+', '-', slug)
+    slug = slug.strip('-')
+    return slug or 'untitled'
+
+
+def _parse_date(raw_date):
+    """다양한 형태의 날짜를 aware datetime으로 변환합니다."""
     if isinstance(raw_date, str):
         try:
             dt = datetime.strptime(raw_date, '%Y-%m-%d %H:%M:%S')
@@ -69,87 +77,23 @@ def parse_post(filepath):
     else:
         dt = datetime.now()
 
-    # 태그 파싱
-    raw_tags = meta.get('tags', [])
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt)
+    return dt
+
+
+def _parse_tags(raw_tags):
+    """태그를 리스트로 변환합니다."""
     if isinstance(raw_tags, str):
-        tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
+        return [t.strip() for t in raw_tags.split(',') if t.strip()]
     elif isinstance(raw_tags, list):
-        tags = [str(t).strip() for t in raw_tags if str(t).strip()]
-    else:
-        tags = []
-
-    return {
-        'title': meta.get('title', slug),
-        'date': dt,
-        'summary': meta.get('summary', ''),
-        'slug': slug,
-        'tags': tags,
-        'body': body_html,
-    }
-
-
-def _sanitize_html(html):
-    """Markdown 렌더링 결과에서 허용된 태그/속성만 남기고 제거합니다."""
-    return bleach.clean(
-        html,
-        tags=ALLOWED_TAGS,
-        attributes=ALLOWED_ATTRIBUTES,
-        protocols=ALLOWED_PROTOCOLS,
-    )
-
-
-def get_all_posts():
-    """posts 디렉토리의 모든 글을 날짜 역순으로 반환합니다."""
-    posts = []
-    if not os.path.exists(POSTS_DIR):
-        return posts
-
-    for filename in os.listdir(POSTS_DIR):
-        if filename.endswith('.md'):
-            filepath = os.path.join(POSTS_DIR, filename)
-            posts.append(parse_post(filepath))
-
-    posts.sort(key=lambda p: p['date'], reverse=True)
-    return posts
-
-
-def get_post_by_slug(slug):
-    """slug로 특정 글을 조회합니다."""
-    filepath = os.path.join(POSTS_DIR, f'{slug}.md')
-    if os.path.exists(filepath):
-        return parse_post(filepath)
-    return None
-
-
-def make_slug(title):
-    """제목에서 slug를 생성합니다."""
-    slug = title.lower().strip()
-    slug = re.sub(r'[^\w\s가-힣-]', '', slug)
-    slug = re.sub(r'[\s]+', '-', slug)
-    slug = slug.strip('-')
-    return slug or 'untitled'
-
-
-def get_all_tags():
-    """모든 글에서 사용된 태그 목록을 (태그, 개수) 형태로 반환합니다."""
-    tag_count = {}
-    for post in get_all_posts():
-        for tag in post['tags']:
-            tag_count[tag] = tag_count.get(tag, 0) + 1
-    return sorted(tag_count.items(), key=lambda x: x[1], reverse=True)
+        return [str(t).strip() for t in raw_tags if str(t).strip()]
+    return []
 
 
 # ---------------------------------------------------------------------------
-# 파일 업로드 관련 유틸리티
+# Frontmatter 파싱
 # ---------------------------------------------------------------------------
-
-IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
-_SKIP_PREFIXES = ('__MACOSX/', '.')
-_SKIP_NAMES = {'.DS_Store', 'Thumbs.db'}
-
-MAX_ZIP_ENTRIES = 100
-MAX_ZIP_UNCOMPRESSED = 100 * 1024 * 1024  # 100 MB
-
 
 def extract_frontmatter_and_body(content):
     """frontmatter(dict)와 body(str)를 분리하여 반환합니다."""
@@ -171,22 +115,16 @@ def ensure_frontmatter(meta, fallback_title):
     return meta
 
 
-def rebuild_md_content(meta, body):
-    """메타데이터와 본문으로 .md 파일 내용을 재구성합니다."""
-    title = meta.get('title', 'Untitled')
-    date_str = meta.get('date', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-    summary = meta.get('summary', '')
+# ---------------------------------------------------------------------------
+# 파일 업로드 관련 유틸리티
+# ---------------------------------------------------------------------------
 
-    raw_tags = meta.get('tags', [])
-    if isinstance(raw_tags, str):
-        tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
-    elif isinstance(raw_tags, list):
-        tags = [str(t).strip() for t in raw_tags if str(t).strip()]
-    else:
-        tags = []
-    tags_yaml = ', '.join(tags)
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
+_SKIP_PREFIXES = ('__MACOSX/', '.')
+_SKIP_NAMES = {'.DS_Store', 'Thumbs.db'}
 
-    return f"---\ntitle: {title}\ndate: {date_str}\nsummary: {summary}\ntags: [{tags_yaml}]\n---\n\n{body}\n"
+MAX_ZIP_ENTRIES = 100
+MAX_ZIP_UNCOMPRESSED = 100 * 1024 * 1024  # 100 MB
 
 
 def validate_zip_safety(zip_ref):
@@ -276,20 +214,35 @@ def rewrite_image_paths(body, mapping):
     return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _replace, body)
 
 
-def _save_md_to_post(md_content, slug):
-    """md 내용을 posts 디렉토리에 저장하고 최종 slug를 반환합니다."""
-    os.makedirs(POSTS_DIR, exist_ok=True)
-    filepath = os.path.join(POSTS_DIR, f'{slug}.md')
-
+def _unique_slug(slug):
+    """slug 충돌 시 카운터를 붙여 유일한 slug를 반환합니다."""
+    from .models import Post
+    if not Post.objects.filter(slug=slug).exists():
+        return slug
     counter = 1
-    while os.path.exists(filepath):
-        filepath = os.path.join(POSTS_DIR, f'{slug}-{counter}.md')
+    while Post.objects.filter(slug=f'{slug}-{counter}').exists():
         counter += 1
+    return f'{slug}-{counter}'
 
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(md_content)
 
-    return os.path.splitext(os.path.basename(filepath))[0]
+def _create_post_from_meta(meta, body_md):
+    """메타데이터와 본문으로 Post를 생성하고 반환합니다."""
+    from .models import Post
+    title = meta.get('title', 'Untitled')
+    slug = _unique_slug(make_slug(title))
+    created_at = _parse_date(meta.get('date', datetime.now()))
+    summary = meta.get('summary', '')
+    tags = _parse_tags(meta.get('tags', []))
+
+    post = Post.objects.create(
+        title=title,
+        slug=slug,
+        summary=summary,
+        tags=tags,
+        body_md=body_md,
+        created_at=created_at,
+    )
+    return post
 
 
 def process_uploaded_md(file):
@@ -303,11 +256,8 @@ def process_uploaded_md(file):
     meta, body = extract_frontmatter_and_body(content)
     meta = ensure_frontmatter(meta, fallback_title)
 
-    md_content = rebuild_md_content(meta, body)
-    slug = make_slug(meta['title'])
-    final_slug = _save_md_to_post(md_content, slug)
-
-    return final_slug, None
+    post = _create_post_from_meta(meta, body)
+    return post.slug, None
 
 
 def process_uploaded_zip(file):
@@ -345,8 +295,5 @@ def process_uploaded_zip(file):
         if image_mapping:
             body = rewrite_image_paths(body, image_mapping)
 
-        md_content = rebuild_md_content(meta, body)
-        slug = make_slug(meta['title'])
-        final_slug = _save_md_to_post(md_content, slug)
-
-        return final_slug, None
+        post = _create_post_from_meta(meta, body)
+        return post.slug, None

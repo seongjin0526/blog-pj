@@ -196,6 +196,7 @@ marked.setOptions({
     breaks: true,
     gfm: true,
     highlight: function(code, lang) {
+        if (typeof hljs === 'undefined') return code;
         if (lang && hljs.getLanguage(lang)) {
             return hljs.highlight(code, { language: lang }).value;
         }
@@ -207,10 +208,12 @@ marked.setOptions({
 function updatePreview() {
     const md = textarea.value;
     preview.innerHTML = marked.parse(md);
-    // highlight.js가 marked의 highlight 옵션을 무시하는 경우 대비
-    preview.querySelectorAll('pre code').forEach(block => {
-        hljs.highlightElement(block);
-    });
+    // highlight.js가 로드된 경우에만 하이라이팅
+    if (typeof hljs !== 'undefined') {
+        preview.querySelectorAll('pre code').forEach(block => {
+            hljs.highlightElement(block);
+        });
+    }
 }
 
 textarea.addEventListener('input', updatePreview);

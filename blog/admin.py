@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import APIKey, Comment
+from .models import APIKey, Comment, Post
+
+
+@admin.register(Post)
+class PostAdmin(admin.ModelAdmin):
+    list_display = ('title', 'slug', 'created_at', 'updated_at')
+    list_filter = ('created_at',)
+    search_fields = ('title', 'slug', 'summary')
+    prepopulated_fields = {'slug': ('title',)}
 
 
 @admin.register(APIKey)
@@ -22,6 +30,6 @@ class APIKeyAdmin(admin.ModelAdmin):
 
 @admin.register(Comment)
 class CommentAdmin(admin.ModelAdmin):
-    list_display = ('user', 'post_slug', 'created_at')
+    list_display = ('user', 'post', 'created_at')
     list_filter = ('created_at',)
-    search_fields = ('content', 'post_slug')
+    search_fields = ('content', 'post__slug')

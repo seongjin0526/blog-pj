@@ -10,6 +10,31 @@ def generate_api_key():
     return secrets.token_urlsafe(36)
 
 
+class Post(models.Model):
+    title = models.CharField(max_length=300)
+    slug = models.SlugField(max_length=300, unique=True, allow_unicode=True)
+    summary = models.TextField(blank=True, default='')
+    tags = models.JSONField(default=list, blank=True)
+    body_md = models.TextField()
+    body_html = models.TextField(blank=True, default='')
+    thumbnail_url = models.CharField(max_length=500, blank=True, default='')
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+    def save(self, **kwargs):
+        from .utils import render_markdown, extract_thumbnail_url
+        if self.body_md:
+            self.body_html = render_markdown(self.body_md)
+            self.thumbnail_url = extract_thumbnail_url(self.body_md)
+        super().save(**kwargs)
+
+
 class APIKey(models.Model):
     SCOPE_CHOICES = [
         ('read', 'Read'),
@@ -71,7 +96,7 @@ class APIKey(models.Model):
 
 
 class Comment(models.Model):
-    post_slug = models.CharField(max_length=200, db_index=True)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
@@ -80,4 +105,4 @@ class Comment(models.Model):
         ordering = ['created_at']
 
     def __str__(self):
-        return f'{self.user} on {self.post_slug}'
+        return f'{self.user} on {self.post.slug}'

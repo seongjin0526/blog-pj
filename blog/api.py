@@ -6,11 +6,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from .decorators import api_auth_required
-from .models import Comment
-from .utils import (
-    get_all_posts, get_post_by_slug,
-    process_uploaded_md, process_uploaded_zip,
-)
+from .models import Comment, Post
+from .utils import process_uploaded_md, process_uploaded_zip
 
 
 @csrf_exempt
@@ -54,9 +51,9 @@ def api_post_list(request):
     except (ValueError, TypeError):
         page, per_page = 1, 20
 
-    posts = get_all_posts()
+    posts = list(Post.objects.all())
     if tag:
-        posts = [p for p in posts if tag in p['tags']]
+        posts = [p for p in posts if tag in p.tags]
 
     total = len(posts)
     start = (page - 1) * per_page
@@ -66,11 +63,12 @@ def api_post_list(request):
     return JsonResponse({
         'posts': [
             {
-                'title': p['title'],
-                'slug': p['slug'],
-                'date': p['date'].isoformat(),
-                'summary': p['summary'],
-                'tags': p['tags'],
+                'title': p.title,
+                'slug': p.slug,
+                'date': p.created_at.isoformat(),
+                'summary': p.summary,
+                'tags': p.tags,
+                'thumbnail_url': p.thumbnail_url,
             }
             for p in page_posts
         ],
@@ -87,19 +85,20 @@ def api_post_list(request):
 @api_auth_required(scope='read')
 @require_GET
 def api_post_detail(request, slug):
-    post = get_post_by_slug(slug)
-    if post is None:
+    try:
+        post = Post.objects.get(slug=slug)
+    except Post.DoesNotExist:
         return JsonResponse({'error': '글을 찾을 수 없습니다.'}, status=404)
 
-    comments = Comment.objects.filter(post_slug=slug).select_related('user').order_by('created_at')
+    comments = post.comments.select_related('user').order_by('created_at')
 
     return JsonResponse({
-        'title': post['title'],
-        'slug': post['slug'],
-        'date': post['date'].isoformat(),
-        'summary': post['summary'],
-        'tags': post['tags'],
-        'body': post['body'],
+        'title': post.title,
+        'slug': post.slug,
+        'date': post.created_at.isoformat(),
+        'summary': post.summary,
+        'tags': post.tags,
+        'body': post.body_html,
         'comments': [
             {
                 'id': c.pk,
@@ -116,8 +115,9 @@ def api_post_detail(request, slug):
 @api_auth_required(scope='write')
 @require_POST
 def api_comment_create(request, slug):
-    post = get_post_by_slug(slug)
-    if post is None:
+    try:
+        post = Post.objects.get(slug=slug)
+    except Post.DoesNotExist:
         return JsonResponse({'error': '글을 찾을 수 없습니다.'}, status=404)
 
     try:
@@ -132,7 +132,7 @@ def api_comment_create(request, slug):
         return JsonResponse({'error': '댓글은 5000자 이하로 작성해주세요.'}, status=400)
 
     comment = Comment.objects.create(
-        post_slug=slug,
+        post=post,
         user=request.user,
         content=content,
     )

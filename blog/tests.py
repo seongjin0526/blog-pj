@@ -12,17 +12,10 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from blog import utils
-from blog.models import APIKey, Comment, generate_api_key
+from blog.models import APIKey, Comment, Post, generate_api_key
 
 
-# 테스트용 임시 디렉토리를 사용하여 실제 posts/media를 오염시키지 않음
-TEST_POSTS_DIR = tempfile.mkdtemp(prefix='test_posts_')
 TEST_MEDIA_ROOT = tempfile.mkdtemp(prefix='test_media_')
-
-
-def _patch_posts_dir(new_dir):
-    """utils.POSTS_DIR을 임시 디렉토리로 교체합니다."""
-    utils.POSTS_DIR = new_dir
 
 
 def _create_api_key(user, name='test', scope='read', **kwargs):
@@ -32,6 +25,20 @@ def _create_api_key(user, name='test', scope='read', **kwargs):
     api_key.set_key(raw_key)
     api_key.save()
     return api_key, raw_key
+
+
+def _create_post(**kwargs):
+    """테스트용 Post를 생성합니다."""
+    defaults = {
+        'title': 'Test Post',
+        'slug': 'test-post',
+        'summary': 'A test post',
+        'tags': ['python'],
+        'body_md': '# Hello\n\nBody content',
+        'created_at': timezone.now(),
+    }
+    defaults.update(kwargs)
+    return Post.objects.create(**defaults)
 
 
 # ──────────────────────────────────────────────
@@ -51,6 +58,30 @@ class MakeSlugTest(TestCase):
     def test_empty(self):
         self.assertEqual(utils.make_slug(''), 'untitled')
         self.assertEqual(utils.make_slug('!!!'), 'untitled')
+
+
+class RenderMarkdownTest(TestCase):
+    def test_basic(self):
+        html = utils.render_markdown('**bold** text')
+        self.assertIn('<strong>bold</strong>', html)
+
+    def test_sanitizes(self):
+        html = utils.render_markdown('<script>alert("xss")</script>')
+        self.assertNotIn('<script>', html)
+
+
+class ExtractThumbnailUrlTest(TestCase):
+    def test_with_image(self):
+        body = '# Title\n\n![alt](/media/uploads/img.png)\n\nText'
+        self.assertEqual(utils.extract_thumbnail_url(body), '/media/uploads/img.png')
+
+    def test_without_image(self):
+        body = '# Title\n\nJust text'
+        self.assertEqual(utils.extract_thumbnail_url(body), '')
+
+    def test_multiple_images_returns_first(self):
+        body = '![first](/img1.png)\n![second](/img2.png)'
+        self.assertEqual(utils.extract_thumbnail_url(body), '/img1.png')
 
 
 class ExtractFrontmatterTest(TestCase):
@@ -86,22 +117,6 @@ class EnsureFrontmatterTest(TestCase):
         result = utils.ensure_frontmatter(meta, 'fallback')
         self.assertEqual(result['title'], 'My Title')
         self.assertEqual(result['date'], '2025-06-01')
-
-
-class RebuildMdContentTest(TestCase):
-    def test_basic(self):
-        meta = {'title': 'Test Post', 'date': '2025-01-01', 'summary': 'A test', 'tags': ['python', 'django']}
-        body = 'Hello world'
-        result = utils.rebuild_md_content(meta, body)
-        self.assertIn('title: Test Post', result)
-        self.assertIn('date: 2025-01-01', result)
-        self.assertIn('tags: [python, django]', result)
-        self.assertIn('Hello world', result)
-
-    def test_empty_tags(self):
-        meta = {'title': 'No Tags', 'date': '2025-01-01'}
-        result = utils.rebuild_md_content(meta, 'body')
-        self.assertIn('tags: []', result)
 
 
 class RewriteImagePathsTest(TestCase):
@@ -160,7 +175,6 @@ class ValidateZipSafetyTest(TestCase):
         self.assertIn('허용되지 않는 경로', err)
 
     def test_macosx_skipped(self):
-        # __MACOSX/post.md는 무시되어야 하므로 유효한 .md가 0개
         zf = self._make_zip({'__MACOSX/post.md': b'# Skip', 'real.md': b'# Real'})
         self.assertIsNone(utils.validate_zip_safety(zf))
 
@@ -181,32 +195,45 @@ class IsValidEntryTest(TestCase):
 
 
 # ──────────────────────────────────────────────
+# Post 모델 테스트
+# ──────────────────────────────────────────────
+
+class PostModelTest(TestCase):
+    def test_save_renders_html(self):
+        post = _create_post(body_md='**bold** text')
+        self.assertIn('<strong>bold</strong>', post.body_html)
+
+    def test_save_extracts_thumbnail(self):
+        post = _create_post(body_md='![img](/media/uploads/test.png)\n\nText')
+        self.assertEqual(post.thumbnail_url, '/media/uploads/test.png')
+
+    def test_save_no_thumbnail(self):
+        post = _create_post(body_md='Just text')
+        self.assertEqual(post.thumbnail_url, '')
+
+    def test_ordering(self):
+        p1 = _create_post(slug='old', created_at=timezone.now() - timedelta(days=1))
+        p2 = _create_post(slug='new', created_at=timezone.now())
+        posts = list(Post.objects.all())
+        self.assertEqual(posts[0].slug, 'new')
+        self.assertEqual(posts[1].slug, 'old')
+
+
+# ──────────────────────────────────────────────
 # 통합 테스트: process_uploaded_md / process_uploaded_zip
 # ──────────────────────────────────────────────
 
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
 class ProcessUploadedMdTest(TestCase):
-    def setUp(self):
-        self.test_dir = tempfile.mkdtemp(prefix='test_posts_md_')
-        self._orig = utils.POSTS_DIR
-        _patch_posts_dir(self.test_dir)
-
-    def tearDown(self):
-        _patch_posts_dir(self._orig)
-        shutil.rmtree(self.test_dir, ignore_errors=True)
-
     def test_md_with_frontmatter(self):
         content = "---\ntitle: My Post\ndate: 2025-06-15\ntags: [python]\n---\n\n본문입니다."
         f = SimpleUploadedFile('my-post.md', content.encode('utf-8'))
         slug, error = utils.process_uploaded_md(f)
         self.assertIsNone(error)
         self.assertEqual(slug, 'my-post')
-        filepath = os.path.join(self.test_dir, f'{slug}.md')
-        self.assertTrue(os.path.exists(filepath))
-        with open(filepath, 'r') as fh:
-            saved = fh.read()
-        self.assertIn('title: My Post', saved)
-        self.assertIn('본문입니다.', saved)
+        post = Post.objects.get(slug=slug)
+        self.assertEqual(post.title, 'My Post')
+        self.assertIn('본문입니다.', post.body_md)
 
     def test_md_without_frontmatter(self):
         content = "# Just a heading\n\nSome content here."
@@ -214,14 +241,10 @@ class ProcessUploadedMdTest(TestCase):
         slug, error = utils.process_uploaded_md(f)
         self.assertIsNone(error)
         self.assertIn('my-article', slug)
-        filepath = os.path.join(self.test_dir, f'{slug}.md')
-        with open(filepath, 'r') as fh:
-            saved = fh.read()
-        self.assertIn('title: my-article', saved)
-        self.assertIn('date:', saved)
+        post = Post.objects.get(slug=slug)
+        self.assertEqual(post.title, 'my-article')
 
     def test_md_non_utf8(self):
-        # EUC-KR 인코딩 텍스트 - UTF-8 디코딩 시 에러
         f = SimpleUploadedFile('bad.md', '한글테스트'.encode('euc-kr'))
         slug, error = utils.process_uploaded_md(f)
         self.assertIsNone(slug)
@@ -242,15 +265,8 @@ class ProcessUploadedMdTest(TestCase):
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
 class ProcessUploadedZipTest(TestCase):
     def setUp(self):
-        self.test_dir = tempfile.mkdtemp(prefix='test_posts_zip_')
-        self._orig = utils.POSTS_DIR
-        _patch_posts_dir(self.test_dir)
         self.media_uploads = os.path.join(TEST_MEDIA_ROOT, 'uploads')
         os.makedirs(self.media_uploads, exist_ok=True)
-
-    def tearDown(self):
-        _patch_posts_dir(self._orig)
-        shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def _make_zip_file(self, file_map):
         buf = io.BytesIO()
@@ -269,13 +285,9 @@ class ProcessUploadedZipTest(TestCase):
         slug, error = utils.process_uploaded_zip(f)
         self.assertIsNone(error)
         self.assertEqual(slug, 'zip-post')
-        filepath = os.path.join(self.test_dir, f'{slug}.md')
-        with open(filepath, 'r') as fh:
-            saved = fh.read()
-        self.assertIn('title: Zip Post', saved)
-        # 이미지 경로가 /media/uploads/로 치환되었는지 확인
-        self.assertIn('/media/uploads/', saved)
-        self.assertNotIn('images/photo.png', saved)
+        post = Post.objects.get(slug=slug)
+        self.assertIn('title: Zip Post', f"title: {post.title}")
+        self.assertIn('/media/uploads/', post.body_md)
 
     def test_zip_md_only(self):
         md_content = "---\ntitle: No Images\n---\n\nJust text."
@@ -333,15 +345,8 @@ class ProcessUploadedZipTest(TestCase):
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
 class PostUploadViewTest(TestCase):
     def setUp(self):
-        self.test_dir = tempfile.mkdtemp(prefix='test_posts_view_')
-        self._orig = utils.POSTS_DIR
-        _patch_posts_dir(self.test_dir)
         self.staff = User.objects.create_user('admin', password='pass', is_staff=True)
         self.normal = User.objects.create_user('user', password='pass', is_staff=False)
-
-    def tearDown(self):
-        _patch_posts_dir(self._orig)
-        shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def _make_zip_bytes(self, file_map):
         buf = io.BytesIO()
@@ -374,7 +379,6 @@ class PostUploadViewTest(TestCase):
         self.client.login(username='user', password='pass')
         f = SimpleUploadedFile('test.md', b'# Hello')
         resp = self.client.post('/upload-post/', {'file': f})
-        # staff_member_required는 login 페이지로 리다이렉트
         self.assertEqual(resp.status_code, 302)
 
     def test_anonymous_blocked(self):
@@ -483,6 +487,8 @@ class APIAuthDecoratorTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('apiuser', password='pass')
         self.key, self.raw_key = _create_api_key(self.user, name='test', scope='write')
+        # API 테스트를 위한 Post 생성
+        _create_post(slug='test-slug')
 
     def test_no_auth_header(self):
         resp = self.client.get('/api/posts/')
@@ -541,19 +547,14 @@ class APIAuthDecoratorTest(TestCase):
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
 class APIPostListTest(TestCase):
     def setUp(self):
-        self.test_dir = tempfile.mkdtemp(prefix='test_api_')
-        self._orig = utils.POSTS_DIR
-        _patch_posts_dir(self.test_dir)
+        Post.objects.all().delete()
         self.user = User.objects.create_user('apiuser', password='pass')
         self.key, self.raw_key = _create_api_key(self.user, name='test', scope='read')
-        # Create a test post file
-        os.makedirs(self.test_dir, exist_ok=True)
-        with open(os.path.join(self.test_dir, 'test-post.md'), 'w') as f:
-            f.write("---\ntitle: Test Post\ndate: 2025-01-01\nsummary: A test\ntags: [python]\n---\n\nBody")
-
-    def tearDown(self):
-        _patch_posts_dir(self._orig)
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        _create_post(
+            title='Test Post', slug='test-post',
+            summary='A test', tags=['python'],
+            body_md='Body',
+        )
 
     def test_list_posts(self):
         resp = self.client.get('/api/posts/', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
@@ -576,18 +577,9 @@ class APIPostListTest(TestCase):
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
 class APIPostDetailTest(TestCase):
     def setUp(self):
-        self.test_dir = tempfile.mkdtemp(prefix='test_api_detail_')
-        self._orig = utils.POSTS_DIR
-        _patch_posts_dir(self.test_dir)
         self.user = User.objects.create_user('apiuser', password='pass')
         self.key, self.raw_key = _create_api_key(self.user, name='test', scope='read')
-        os.makedirs(self.test_dir, exist_ok=True)
-        with open(os.path.join(self.test_dir, 'my-post.md'), 'w') as f:
-            f.write("---\ntitle: My Post\ndate: 2025-01-01\n---\n\nBody content")
-
-    def tearDown(self):
-        _patch_posts_dir(self._orig)
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        _create_post(title='My Post', slug='my-post', body_md='Body content')
 
     def test_get_detail(self):
         resp = self.client.get('/api/posts/my-post/', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
@@ -604,21 +596,12 @@ class APIPostDetailTest(TestCase):
 
 class APICommentTest(TestCase):
     def setUp(self):
-        self.test_dir = tempfile.mkdtemp(prefix='test_api_comment_')
-        self._orig = utils.POSTS_DIR
-        _patch_posts_dir(self.test_dir)
         self.user = User.objects.create_user('apiuser', password='pass')
         self.other_user = User.objects.create_user('other', password='pass')
         self.write_key, self.write_raw = _create_api_key(self.user, name='write', scope='write')
         self.read_key, self.read_raw = _create_api_key(self.user, name='read', scope='read')
         self.other_key, self.other_raw = _create_api_key(self.other_user, name='other-write', scope='write')
-        os.makedirs(self.test_dir, exist_ok=True)
-        with open(os.path.join(self.test_dir, 'test-post.md'), 'w') as f:
-            f.write("---\ntitle: Test\ndate: 2025-01-01\n---\n\nBody")
-
-    def tearDown(self):
-        _patch_posts_dir(self._orig)
-        shutil.rmtree(self.test_dir, ignore_errors=True)
+        self.post = _create_post(slug='test-post')
 
     def test_create_comment(self):
         resp = self.client.post(
@@ -669,7 +652,7 @@ class APICommentTest(TestCase):
         self.assertEqual(resp.status_code, 403)
 
     def test_delete_own_comment(self):
-        comment = Comment.objects.create(post_slug='test-post', user=self.user, content='to delete')
+        comment = Comment.objects.create(post=self.post, user=self.user, content='to delete')
         resp = self.client.delete(
             f'/api/comments/{comment.pk}/',
             HTTP_AUTHORIZATION=f'Key {self.write_raw}',
@@ -678,7 +661,7 @@ class APICommentTest(TestCase):
         self.assertEqual(Comment.objects.count(), 0)
 
     def test_delete_other_user_comment_denied(self):
-        comment = Comment.objects.create(post_slug='test-post', user=self.user, content='mine')
+        comment = Comment.objects.create(post=self.post, user=self.user, content='mine')
         resp = self.client.delete(
             f'/api/comments/{comment.pk}/',
             HTTP_AUTHORIZATION=f'Key {self.other_raw}',
@@ -697,16 +680,9 @@ class APICommentTest(TestCase):
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
 class APIUploadTest(TestCase):
     def setUp(self):
-        self.test_dir = tempfile.mkdtemp(prefix='test_api_upload_')
-        self._orig = utils.POSTS_DIR
-        _patch_posts_dir(self.test_dir)
         self.user = User.objects.create_user('admin', password='pass', is_staff=True)
         self.admin_key, self.admin_raw = _create_api_key(self.user, name='admin', scope='admin')
         self.write_key, self.write_raw = _create_api_key(self.user, name='write', scope='write')
-
-    def tearDown(self):
-        _patch_posts_dir(self._orig)
-        shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_upload_md(self):
         content = "---\ntitle: API Upload\n---\n\nBody"
@@ -810,11 +786,8 @@ class APIKeyManagementViewTest(TestCase):
     def test_new_key_shown_once(self):
         self.client.login(username='testuser', password='pass')
         self.client.post('/api-keys/create/', {'name': 'show-once', 'scope': 'read'})
-        # First visit shows the raw key from session
         resp = self.client.get('/api-keys/')
         self.assertEqual(resp.status_code, 200)
-        # Second visit does not show the raw key (session cleared)
         resp2 = self.client.get('/api-keys/')
-        # The key prefix should still show in the masked display
         key = APIKey.objects.get(user=self.user)
         self.assertContains(resp2, key.key_prefix)
