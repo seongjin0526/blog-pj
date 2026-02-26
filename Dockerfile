@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS base
+FROM python:3.12-slim AS base
 
 # 보안: non-root 유저 생성
 RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
@@ -16,7 +16,7 @@ COPY . .
 RUN SECRET_KEY=build-placeholder python manage.py collectstatic --noinput 2>/dev/null || true
 
 # 미디어 디렉토리 생성 및 권한 설정
-RUN mkdir -p /app/media /app/posts && chown -R appuser:appuser /app
+RUN mkdir -p /app/media && chown -R appuser:appuser /app
 
 # non-root 유저로 전환
 USER appuser

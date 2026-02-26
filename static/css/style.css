@@ -55,6 +55,11 @@ main {
     color: #0d6efd;
 }
 
+/* 글 목록 카드 클릭 */
+.post-card[data-href]:hover {
+    box-shadow: 0 .25rem .75rem rgba(0,0,0,.15);
+}
+
 /* 글 목록 썸네일 */
 .post-thumbnail {
     width: 120px;
@@ -76,8 +81,8 @@ main {
 
     /* 썸네일 축소 */
     .post-thumbnail {
-        width: 72px;
-        height: 54px;
+        width: 56px;
+        height: 42px;
     }
 
     /* 카드 제목 */
