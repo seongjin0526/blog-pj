@@ -1,67 +1,8 @@
 # blog-pj
 
-Django 기반 마크다운 블로그 프로젝트입니다.
+Django 기반 마크다운 블로그 프로젝트입니다. Docker Compose로 실행합니다.
 
-## 실행 방법
-
-### 1. 의존성 설치
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 환경변수 설정
-
-프로젝트 루트에 `.env` 파일을 생성합니다.
-
-```env
-SECRET_KEY=your-secret-key-here
-DEBUG=True
-ALLOWED_HOSTS=
-
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-OWNER_EMAIL=your-email@gmail.com
-```
-
-- `SECRET_KEY` — 미설정 시 서버가 시작되지 않습니다
-- `OWNER_EMAIL` — 이 이메일로 Google 로그인 시 자동으로 관리자 권한이 부여됩니다
-
-### 3. DB 마이그레이션
-
-```bash
-python manage.py migrate
-```
-
-### 4. Site 도메인 설정
-
-Django shell에서 Site 도메인을 로컬 개발 환경에 맞게 변경합니다.
-
-```bash
-python manage.py shell -c "
-from django.contrib.sites.models import Site
-s = Site.objects.get(id=1)
-s.domain = '127.0.0.1:8000'
-s.name = 'localhost'
-s.save()
-"
-```
-
-### 5. 서버 실행
-
-```bash
-python manage.py runserver
-```
-
-`http://127.0.0.1:8000/` 에서 접속할 수 있습니다.
-
-### 6. 테스트 실행
-
-```bash
-python manage.py test blog
-```
-
-## Docker Compose 실행 (프로덕션)
+## 시작하기
 
 ### 1. 환경변수 설정
 
@@ -71,40 +12,50 @@ python manage.py test blog
 cp .env.sample .env
 ```
 
-DB 관련 환경변수:
+| 변수 | 설명 | 예시 |
+|------|------|------|
+| `SECRET_KEY` | Django 시크릿 키 (필수) | 랜덤 문자열 |
+| `DEBUG` | 디버그 모드 | `True` / `False` |
+| `ALLOWED_HOSTS` | 허용 호스트 (쉼표 구분) | `localhost` |
+| `ADMIN_EMAILS` | 관리자 이메일 (쉼표 구분) | `you@gmail.com` |
+| `GOOGLE_CLIENT_ID` | Google OAuth 클라이언트 ID | |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth 시크릿 | |
+| `DB_ENGINE` | DB 엔진 | `django.db.backends.postgresql` |
+| `DB_NAME` | DB 이름 | `blog` |
+| `DB_USER` | DB 사용자 | `blog_user` |
+| `DB_PASSWORD` | DB 비밀번호 | 강력한 비밀번호 |
+| `DB_HOST` | DB 호스트 | `db` |
+| `DB_PORT` | DB 포트 | `5432` |
 
-```env
-DB_ENGINE=django.db.backends.postgresql
-DB_NAME=blog
-DB_USER=blog_user
-DB_PASSWORD=your-secure-password
-DB_HOST=db
-DB_PORT=5432
-```
-
-### 2. 전체 스택 실행
+### 2. 실행
 
 ```bash
 docker compose up --build
 ```
 
-- PostgreSQL(db) 준비 완료 후 Django(web) 자동 시작
+- PostgreSQL(db) healthcheck 통과 후 Django(web) 자동 시작
 - 마이그레이션은 web 컨테이너 시작 시 자동 실행
 - `http://localhost:8000/` 에서 접속
 
-### 3. 관리자 생성
+### 3. Site 도메인 설정
+
+최초 실행 시 Django Site 도메인을 설정합니다.
 
 ```bash
-docker compose exec web python manage.py createsuperuser
+docker compose exec web python manage.py shell -c "
+from django.contrib.sites.models import Site
+s = Site.objects.get(id=1)
+s.domain = 'localhost:8000'
+s.name = 'localhost'
+s.save()
+"
 ```
 
-### 4. 테스트 실행
+### 4. 테스트
 
 ```bash
 docker compose run --rm test
 ```
-
-PostgreSQL 환경에서 전체 테스트를 실행합니다.
 
 ### 5. 종료
 
@@ -114,9 +65,55 @@ docker compose down
 
 데이터는 Docker 볼륨(`postgres_data`, `media_data`)에 보존됩니다.
 
-## Google OAuth 설정
+## 프로덕션 배포
 
-### Google Cloud Console
+### 환경변수
+
+`.env`에서 다음 항목을 프로덕션 값으로 변경합니다.
+
+```env
+DEBUG=False
+ALLOWED_HOSTS=your-domain.com
+CSRF_TRUSTED_ORIGINS=https://your-domain.com
+SECRET_KEY=<충분히 긴 랜덤 문자열>
+DB_PASSWORD=<강력한 비밀번호>
+```
+
+| 항목 | 설명 |
+|------|------|
+| `DEBUG=False` | 디버그 비활성화. 자동으로 HTTPS 리다이렉트, HSTS, Secure Cookie 등 보안 설정 활성화 |
+| `ALLOWED_HOSTS` | 실제 도메인 설정. 미설정 시 모든 요청 거부 |
+| `CSRF_TRUSTED_ORIGINS` | HTTPS 도메인 (예: `https://your-domain.com`). 미설정 시 POST 요청 403 |
+| `SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(50))"` 으로 생성 |
+| `DB_PASSWORD` | 강력한 비밀번호로 변경 |
+
+### Static 파일
+
+WhiteNoise가 gunicorn에서 직접 static 파일을 서빙합니다. 별도 nginx 설정 없이 동작합니다.
+
+### Site 도메인
+
+프로덕션 도메인으로 변경합니다.
+
+```bash
+docker compose exec web python manage.py shell -c "
+from django.contrib.sites.models import Site
+s = Site.objects.get(id=1)
+s.domain = 'your-domain.com'
+s.name = 'your-domain.com'
+s.save()
+"
+```
+
+### Google OAuth 리디렉션 URI
+
+Google Cloud Console에서 프로덕션 도메인의 콜백 URI를 추가합니다.
+
+```
+https://your-domain.com/accounts/google/login/callback/
+```
+
+## Google OAuth 설정
 
 1. [Google Cloud Console](https://console.cloud.google.com/) 접속
 2. 프로젝트 생성 (또는 기존 프로젝트 선택)
@@ -125,16 +122,11 @@ docker compose down
 5. 애플리케이션 유형: **웹 애플리케이션**
 6. **승인된 리디렉션 URI**에 추가:
    ```
-   http://127.0.0.1:8000/accounts/google/login/callback/
+   http://localhost:8000/accounts/google/login/callback/
    ```
 7. 생성된 **클라이언트 ID**와 **클라이언트 보안 비밀번호**를 `.env`에 입력
 
 > OAuth 동의 화면 설정을 먼저 요구할 수 있습니다. 테스트 단계에서는 "외부" 선택 후 앱 이름만 입력하면 됩니다.
-
-### 확인
-
-- 네비바의 **Google 로그인** 클릭 → Google 계정 선택 → 로그인 완료
-- `OWNER_EMAIL`과 일치하는 계정으로 로그인하면 자동으로 관리자(staff) 권한이 부여됩니다
 
 ## API
 
@@ -175,20 +167,20 @@ API 키는 로그인 후 **API 키** 메뉴에서 발급할 수 있으며, 발�
 
 ```bash
 # 글 목록 조회
-curl -H "Authorization: Key YOUR_API_KEY" http://127.0.0.1:8000/api/posts/
+curl -H "Authorization: Key YOUR_API_KEY" http://localhost:8000/api/posts/
 
 # 댓글 작성
 curl -X POST \
   -H "Authorization: Key YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"content":"좋은 글이네요!"}' \
-  http://127.0.0.1:8000/api/posts/my-post/comments/
+  http://localhost:8000/api/posts/my-post/comments/
 
 # 게시글 업로드 (admin 키 필요)
 curl -X POST \
   -H "Authorization: Key YOUR_ADMIN_KEY" \
   -F "file=@my-post.md" \
-  http://127.0.0.1:8000/api/upload-post/
+  http://localhost:8000/api/upload-post/
 ```
 
 웹에서도 `/api-guide/` 페이지에서 상세 가이드를 확인할 수 있습니다.

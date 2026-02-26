@@ -49,6 +49,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -175,6 +176,11 @@ SOCIALACCOUNT_PROVIDERS = {
 
 # 이 이메일로 Google 로그인 시 자동으로 관리자(staff) 권한 부여
 OWNER_EMAIL = os.environ.get('OWNER_EMAIL', '').strip()
+
+# CSRF 신뢰 도메인 (HTTPS 리버스 프록시 사용 시 필수)
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
+]
 
 # 프로덕션 보안 설정
 if not DEBUG:

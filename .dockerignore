@@ -30,6 +30,13 @@ media/
 # Claude Code
 .claude/
 
+# 빌드 아티팩트
+staticfiles/
+
+# 문서
+README.md
+CLAUDE.md
+
 # Docker
 Dockerfile
 docker-compose*.yml
