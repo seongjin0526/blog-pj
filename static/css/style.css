@@ -72,6 +72,32 @@ main {
     min-width: 0;
 }
 
+/* ── 다크 모드 오버라이드 ── */
+[data-bs-theme="dark"] .post-content pre {
+    background-color: #1e1e1e;
+}
+
+[data-bs-theme="dark"] .post-content code {
+    color: #e685b5;
+}
+
+[data-bs-theme="dark"] .post-content blockquote {
+    border-left-color: #495057;
+    color: #adb5bd;
+}
+
+[data-bs-theme="dark"] .card-title a {
+    color: #dee2e6;
+}
+
+[data-bs-theme="dark"] .post-card[data-href]:hover {
+    box-shadow: 0 .25rem .75rem rgba(255, 255, 255, .08);
+}
+
+[data-bs-theme="dark"] .navbar {
+    border-bottom: 1px solid #495057;
+}
+
 /* ── 모바일 (768px 미만) ── */
 @media (max-width: 767.98px) {
     /* 네비게이션 */

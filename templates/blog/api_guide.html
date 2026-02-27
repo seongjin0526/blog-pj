@@ -51,7 +51,7 @@
                 <pre class="bg-dark text-light p-3 rounded"><code>curl -H "Authorization: Key YOUR_API_KEY" \
   {{ request.scheme }}://{{ request.get_host }}/api/posts/?tag=python</code></pre>
                 <h6>응답</h6>
-                <pre class="bg-light p-3 rounded"><code>{
+                <pre class="bg-body-secondary p-3 rounded"><code>{
   "posts": [
     {
       "title": "글 제목",
@@ -85,7 +85,7 @@
             <div class="card-body">
                 <p><code>POST /api/posts/{slug}/comments/</code> <span class="badge bg-warning text-dark">write</span></p>
                 <h6>요청 본문 (JSON)</h6>
-                <pre class="bg-light p-3 rounded"><code>{"content": "댓글 내용"}</code></pre>
+                <pre class="bg-body-secondary p-3 rounded"><code>{"content": "댓글 내용"}</code></pre>
                 <h6>예시</h6>
                 <pre class="bg-dark text-light p-3 rounded"><code>curl -X POST \
   -H "Authorization: Key YOUR_API_KEY" \
@@ -120,7 +120,7 @@
                     </tbody>
                 </table>
                 <p>모든 에러 응답은 다음 형식입니다:</p>
-                <pre class="bg-light p-3 rounded"><code>{"error": "에러 메시지"}</code></pre>
+                <pre class="bg-body-secondary p-3 rounded"><code>{"error": "에러 메시지"}</code></pre>
             </div>
         </div>
 
