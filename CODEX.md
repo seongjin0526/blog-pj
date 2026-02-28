@@ -45,6 +45,9 @@ CODEX_CHANGELOG.md Codex 작업 내역 로그
 - Staff 전용 뷰는 `@staff_member_required(login_url='/')` + `@never_cache`
 - API 엔드포인트는 인증 데코레이터 적용
 - `.env`, `db.sqlite3`, `media/`는 Git 제외
+- Docker 컨테이너는 root(UID 0)로 실행하지 않는다 (`USER appuser` 유지)
+- Docker 서비스는 `privileged: false`를 유지한다
+- Docker 서비스는 `no-new-privileges:true` 및 `cap_drop: [ALL]`를 기본 적용한다
 
 ## Known Gotchas
 - `hljs` 로딩 전 참조 시 에디터 스크립트 오류 가능

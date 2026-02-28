@@ -26,3 +26,10 @@ Claude로 전환할 때 이 파일을 기준으로 변경 의도와 영향 범�
 - User Impact: 태그 탐색 UI 구현 기준과 향후 제목/본문 검색 확장 포인트를 Codex 문서 체계에서 바로 재사용 가능.
 - Validation: `sed`로 `.claude` export 원문 확인 후 신규 문서 생성, `git status --short`로 파일 반영 확인.
 - Claude Handoff: `.claude`는 원본 로그 보관용으로 두고, 실제 작업 규칙은 `.codex`와 `CODEX.md`를 우선 참조.
+
+## 2026-02-28
+- Summary: Docker 컨테이너 비루트/비특권 실행 정책을 compose와 Codex 보안 가이드에 명시.
+- Files: docker-compose.yml, CODEX.md, .codex/commands/security-check.md, CODEX_CHANGELOG.md
+- User Impact: web/test 컨테이너의 권한이 최소화되어 컨테이너 탈출 및 권한 상승 리스크를 낮춤.
+- Validation: `docker compose exec -T web id -u` 결과 `999`, `docker compose run --rm --no-deps test id -u` 결과 `999`, `docker compose config`로 `no-new-privileges`/`cap_drop` 반영 확인.
+- Claude Handoff: 이후 compose 수정 시 `privileged: false`, `no-new-privileges:true`, `cap_drop: [ALL]` 정책 유지 필요.
