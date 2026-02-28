@@ -16,6 +16,7 @@ class Post(models.Model):
     summary = models.TextField(blank=True, default='')
     tags = models.JSONField(default=list, blank=True)
     body_md = models.TextField()
+    search_document = models.TextField(blank=True, default='')
     body_html = models.TextField(blank=True, default='')
     thumbnail_url = models.CharField(max_length=500, blank=True, default='')
     created_at = models.DateTimeField()
@@ -28,7 +29,14 @@ class Post(models.Model):
         return self.title
 
     def save(self, **kwargs):
-        from .utils import render_markdown, extract_thumbnail_url, generate_thumbnail
+        from .utils import render_markdown, extract_thumbnail_url, generate_thumbnail, normalize_tags
+        self.tags = normalize_tags(self.tags)
+        # 검색 성능을 위해 조회 대상 텍스트를 별도 컬럼으로 유지
+        self.search_document = '\n'.join([
+            self.title or '',
+            self.summary or '',
+            self.body_md or '',
+        ])
         if self.body_md:
             self.body_html = render_markdown(self.body_md)
             original_url = extract_thumbnail_url(self.body_md)

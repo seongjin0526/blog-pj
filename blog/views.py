@@ -6,6 +6,9 @@ from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
+from django.db import connection
+from django.db.models import Q
 from django.views.decorators.cache import never_cache
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -18,18 +21,85 @@ from .models import APIKey, Comment, Post
 from .tag_utils import get_sorted_tag_counts
 from .utils import (
     make_slug, process_uploaded_md, process_uploaded_zip,
-    extract_frontmatter_and_body, _parse_date, _parse_tags,
+    build_search_expression, extract_frontmatter_and_body,
+    parse_search_expression, _parse_date, _parse_tags, normalize_tag,
 )
 
 
-def post_list(request):
-    tag = request.GET.get('tag', '').strip()
-    posts = Post.objects.all()
-    if tag:
-        posts = [p for p in posts if tag in p.tags]
+def _apply_text_search(posts_qs, search_terms):
+    if not search_terms:
+        return posts_qs
 
-    # 태그 집계
+    if connection.vendor == 'postgresql':
+        vector = SearchVector('search_document', config='simple')
+        query = None
+        for term in search_terms:
+            term_query = SearchQuery(term, config='simple', search_type='plain')
+            query = term_query if query is None else query & term_query
+
+        return (
+            posts_qs
+            .annotate(search_rank=SearchRank(vector, query))
+            .filter(search_rank__gt=0)
+            .order_by('-search_rank', '-created_at')
+        )
+
+    for term in search_terms:
+        posts_qs = posts_qs.filter(
+            Q(title__icontains=term) |
+            Q(summary__icontains=term) |
+            Q(body_md__icontains=term)
+        )
+    return posts_qs
+
+
+def _apply_tag_search(posts_qs, valid_tags):
+    if not valid_tags:
+        return posts_qs
+
+    if connection.vendor == 'postgresql':
+        condition = Q()
+        for tag in valid_tags:
+            condition |= Q(tags__contains=[tag])
+        return posts_qs.filter(condition)
+
+    return [
+        p for p in posts_qs
+        if any(tag in {normalize_tag(raw) for raw in p.tags} for tag in valid_tags)
+    ]
+
+
+def post_list(request):
+    raw_query = request.GET.get('q', '').strip()
+    tags, search_terms = parse_search_expression(raw_query)
+    extra_tag = normalize_tag(request.GET.get('tag', ''))
+    if extra_tag and extra_tag not in tags:
+        tags.append(extra_tag)
+
     all_tags = get_sorted_tag_counts()
+    known_tags = {tag for tag, _ in all_tags}
+    valid_tags = []
+    for tag in tags:
+        if tag in known_tags:
+            if tag not in valid_tags:
+                valid_tags.append(tag)
+        elif tag and tag not in search_terms:
+            search_terms.append(tag)
+
+    # 검색어 중 태그와 정확히 일치하는 항목은 태그로 승격
+    filtered_search_terms = []
+    for term in search_terms:
+        term_tag = normalize_tag(term)
+        if term_tag and term_tag in known_tags:
+            if term_tag not in valid_tags:
+                valid_tags.append(term_tag)
+            continue
+        filtered_search_terms.append(term)
+    search_terms = filtered_search_terms
+
+    posts = Post.objects.all()
+    posts = _apply_text_search(posts, search_terms)
+    posts = _apply_tag_search(posts, valid_tags)
 
     per_page_options = [10, 20, 50, 100]
     try:
@@ -46,7 +116,9 @@ def post_list(request):
     return render(request, 'blog/post_list.html', {
         'page_obj': page_obj,
         'all_tags': all_tags,
-        'current_tag': tag,
+        'current_tags': valid_tags,
+        'current_search_terms': search_terms,
+        'current_query_expr': build_search_expression(valid_tags, search_terms),
         'per_page': per_page,
         'per_page_options': per_page_options,
     })
@@ -80,7 +152,7 @@ def post_create(request):
             })
 
         slug = make_slug(title)
-        tags = [t.strip() for t in tags_raw.split(',') if t.strip()]
+        tags = _parse_tags(tags_raw)
 
         # slug 충돌 처리
         from .utils import _unique_slug
@@ -194,7 +266,7 @@ def post_edit(request, slug):
                 'edit_slug': slug,
             })
 
-        tags = [t.strip() for t in tags_raw.split(',') if t.strip()]
+        tags = _parse_tags(tags_raw)
         new_slug = make_slug(title)
 
         if new_slug != slug:

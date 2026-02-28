@@ -2,12 +2,13 @@ import json
 import os
 
 from django.http import JsonResponse
+from django.db import connection
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from .decorators import api_auth_required
 from .models import Comment, Post
-from .utils import process_uploaded_md, process_uploaded_zip
+from .utils import normalize_tag, process_uploaded_md, process_uploaded_zip
 
 
 @csrf_exempt
@@ -41,7 +42,7 @@ def api_upload_post(request):
 @api_auth_required(scope='read')
 @require_GET
 def api_post_list(request):
-    tag = request.GET.get('tag', '').strip()
+    tag = normalize_tag(request.GET.get('tag', ''))
     page = request.GET.get('page', '1')
     per_page = request.GET.get('per_page', '20')
 
@@ -51,9 +52,17 @@ def api_post_list(request):
     except (ValueError, TypeError):
         page, per_page = 1, 20
 
-    posts = list(Post.objects.all())
+    posts_qs = Post.objects.all()
     if tag:
-        posts = [p for p in posts if tag in p.tags]
+        if connection.vendor == 'postgresql':
+            posts_qs = posts_qs.filter(tags__contains=[tag])
+        else:
+            posts_qs = [
+                p for p in posts_qs
+                if tag in {normalize_tag(raw) for raw in p.tags}
+            ]
+
+    posts = list(posts_qs)
 
     total = len(posts)
     start = (page - 1) * per_page

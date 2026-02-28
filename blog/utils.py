@@ -131,13 +131,94 @@ def _parse_date(raw_date):
     return dt
 
 
+def normalize_tag(raw_tag):
+    """단일 태그를 소문자/trim으로 정규화합니다."""
+    tag = str(raw_tag).strip().lower()
+    if not tag:
+        return ''
+    if not re.fullmatch(r'[a-z가-힣]+', tag):
+        return ''
+    return tag
+
+
+def normalize_tags(raw_tags):
+    """태그 목록을 소문자 기준으로 정규화하고 중복을 제거합니다."""
+    if isinstance(raw_tags, str):
+        candidates = raw_tags.split(',')
+    elif isinstance(raw_tags, list):
+        candidates = raw_tags
+    else:
+        return []
+
+    normalized = []
+    seen = set()
+    for raw in candidates:
+        tag = normalize_tag(raw)
+        if not tag or tag in seen:
+            continue
+        seen.add(tag)
+        normalized.append(tag)
+    return normalized
+
+
+def parse_search_expression(raw_query):
+    """`tag:` / `search:` 표현식을 파싱해 (tags, search_terms)를 반환합니다."""
+    query = str(raw_query or '').strip()
+    if not query:
+        return [], []
+
+    marker_pattern = re.compile(r'(?i)\b(tag|search)\s*:')
+    markers = list(marker_pattern.finditer(query))
+    if not markers:
+        return [], [query]
+
+    tags = []
+    search_terms = []
+    seen_term = set()
+
+    for idx, marker in enumerate(markers):
+        kind = marker.group(1).lower()
+        start = marker.end()
+        end = markers[idx + 1].start() if idx + 1 < len(markers) else len(query)
+        section = query[start:end].strip()
+        if not section:
+            continue
+
+        if kind == 'tag':
+            chunks = [item.strip() for item in section.split(',') if item.strip()]
+            for chunk in chunks:
+                parts = chunk.split(None, 1)
+                tag_candidate = normalize_tag(parts[0]) if parts else ''
+                if tag_candidate and tag_candidate not in tags:
+                    tags.append(tag_candidate)
+                if len(parts) > 1:
+                    trailing = parts[1].strip()
+                    if trailing and trailing not in seen_term:
+                        seen_term.add(trailing)
+                        search_terms.append(trailing)
+        else:
+            for term in [item.strip() for item in section.split(',') if item.strip()]:
+                if term in seen_term:
+                    continue
+                seen_term.add(term)
+                search_terms.append(term)
+
+    return tags, search_terms
+
+
+def build_search_expression(tags, search_terms):
+    """파싱 결과를 검색 입력용 문자열(`tag:... search:...`)로 조합합니다."""
+    parts = []
+    if tags:
+        parts.append('tag:' + ','.join(tags))
+    if search_terms:
+        parts.append('search:' + ','.join(search_terms))
+    return ' '.join(parts)
+
+
 def _parse_tags(raw_tags):
     """태그를 리스트로 변환합니다."""
-    if isinstance(raw_tags, str):
-        return [t.strip() for t in raw_tags.split(',') if t.strip()]
-    elif isinstance(raw_tags, list):
-        return [str(t).strip() for t in raw_tags if str(t).strip()]
-    return []
+    return normalize_tags(raw_tags)
 
 
 # ---------------------------------------------------------------------------

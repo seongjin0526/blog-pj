@@ -98,22 +98,26 @@ main {
     border-bottom: 1px solid #495057;
 }
 
-.navbar-tag-widget {
-    min-width: 0;
-    color: #f8f9fa;
+.tag-discovery-widget {
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    background: rgba(248, 249, 250, 0.9);
+}
+
+.tag-discovery-search {
+    position: relative;
+    max-width: 420px;
 }
 
 .navbar-tag-topline {
     display: flex;
     gap: 0.35rem;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: thin;
-    max-width: 42vw;
-    padding-bottom: 0.1rem;
+    flex-wrap: wrap;
 }
 
-.navbar-tag-topline .badge {
+.navbar-tag-topline .badge,
+.navbar-tag-panel .badge {
     white-space: nowrap;
     font-weight: 500;
 }
@@ -122,16 +126,6 @@ main {
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem;
-    max-width: 46vw;
-}
-
-.navbar-tag-panel .badge {
-    white-space: nowrap;
-}
-
-.navbar-tag-search {
-    position: relative;
-    max-width: 320px;
 }
 
 #navbar-tag-suggest-list {
@@ -157,6 +151,11 @@ main {
     border-color: rgba(255, 255, 255, 0.2);
 }
 
+[data-bs-theme="dark"] .tag-discovery-widget {
+    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(33, 37, 41, 0.65);
+}
+
 /* ── 모바일 (768px 미만) ── */
 @media (max-width: 767.98px) {
     /* 네비게이션 */
@@ -164,17 +163,12 @@ main {
         font-size: 1rem;
     }
 
-    .navbar-tag-widget {
-        width: 100%;
-        order: 2;
-    }
-
     .navbar-tag-topline {
-        display: none;
+        max-width: 100%;
     }
 
     .navbar-tag-panel,
-    .navbar-tag-search {
+    .tag-discovery-search {
         max-width: 100%;
     }
 

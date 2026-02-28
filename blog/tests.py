@@ -9,6 +9,7 @@ from datetime import timedelta
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from blog import utils
@@ -119,6 +120,27 @@ class EnsureFrontmatterTest(TestCase):
         self.assertEqual(result['date'], '2025-06-01')
 
 
+class ParseSearchExpressionTest(TestCase):
+    def test_parse_full_expression(self):
+        tags, terms = utils.parse_search_expression('tag:Python, django search:구현방법, 테스트')
+        self.assertEqual(tags, ['python', 'django'])
+        self.assertEqual(terms, ['구현방법', '테스트'])
+
+    def test_plain_text_falls_back_to_search_term(self):
+        tags, terms = utils.parse_search_expression('Django 검색')
+        self.assertEqual(tags, [])
+        self.assertEqual(terms, ['Django 검색'])
+
+    def test_invalid_tag_charset_is_ignored(self):
+        tags, terms = utils.parse_search_expression('tag:django123,테스트!')
+        self.assertEqual(tags, [])
+        self.assertEqual(terms, [])
+
+    def test_build_expression_has_no_space_after_comma(self):
+        expr = utils.build_search_expression(['django', 'python'], ['블로그', '구현'])
+        self.assertEqual(expr, 'tag:django,python search:블로그,구현')
+
+
 class RewriteImagePathsTest(TestCase):
     def test_basic_rewrite(self):
         body = '![alt](images/photo.png)'
@@ -217,6 +239,10 @@ class PostModelTest(TestCase):
         posts = list(Post.objects.all())
         self.assertEqual(posts[0].slug, 'new')
         self.assertEqual(posts[1].slug, 'old')
+
+    def test_save_normalizes_tags_to_lowercase_and_unique(self):
+        post = _create_post(slug='tag-normalize', tags=['Django', ' django ', 'PYTHON'])
+        self.assertEqual(post.tags, ['django', 'python'])
 
 
 # ──────────────────────────────────────────────
@@ -541,6 +567,89 @@ class APIAuthDecoratorTest(TestCase):
 
 
 # ──────────────────────────────────────────────
+# 블로그 목록 뷰 테스트
+# ──────────────────────────────────────────────
+
+class PostListViewTest(TestCase):
+    def setUp(self):
+        Post.objects.all().delete()
+        _create_post(
+            title='Django 검색 구현',
+            slug='django-search',
+            summary='검색 기능 정리',
+            tags=['django'],
+            body_md='제목과 본문 검색을 지원합니다.',
+        )
+        _create_post(
+            title='Python 기초',
+            slug='python-basic',
+            summary='기초 문법',
+            tags=['python'],
+            body_md='변수와 함수 설명',
+        )
+        _create_post(
+            title='Django 배포',
+            slug='django-deploy',
+            summary='배포 팁',
+            tags=['django'],
+            body_md='운영 배포 체크리스트',
+        )
+
+    def test_search_query_filters_by_title_or_body(self):
+        resp = self.client.get(reverse('blog:post_list'), {'q': '검색'})
+        self.assertEqual(resp.status_code, 200)
+        page_items = list(resp.context['page_obj'])
+        self.assertEqual(len(page_items), 1)
+        self.assertEqual(page_items[0].slug, 'django-search')
+
+    def test_search_query_can_be_combined_with_tag_filter(self):
+        resp = self.client.get(reverse('blog:post_list'), {'q': '배포', 'tag': 'python'})
+        self.assertEqual(resp.status_code, 200)
+        page_items = list(resp.context['page_obj'])
+        self.assertEqual(len(page_items), 0)
+
+    def test_expression_supports_multi_tags_and_search_terms(self):
+        resp = self.client.get(
+            reverse('blog:post_list'),
+            {'q': 'tag:python, django search:배포'},
+        )
+        self.assertEqual(resp.status_code, 200)
+        page_items = list(resp.context['page_obj'])
+        self.assertEqual(len(page_items), 1)
+        self.assertEqual(page_items[0].slug, 'django-deploy')
+
+    def test_unknown_tag_tokens_fallback_to_search_terms(self):
+        resp = self.client.get(
+            reverse('blog:post_list'),
+            {'q': 'tag:django, 배포'},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['current_tags'], ['django'])
+        self.assertEqual(resp.context['current_search_terms'], ['배포'])
+        page_items = list(resp.context['page_obj'])
+        self.assertEqual(len(page_items), 1)
+        self.assertEqual(page_items[0].slug, 'django-deploy')
+
+    def test_exact_tag_in_plain_query_is_promoted_to_tag(self):
+        resp = self.client.get(
+            reverse('blog:post_list'),
+            {'q': 'django'},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['current_tags'], ['django'])
+        self.assertEqual(resp.context['current_search_terms'], [])
+
+    def test_exact_tag_in_search_section_is_promoted_to_tag(self):
+        resp = self.client.get(
+            reverse('blog:post_list'),
+            {'q': 'tag:django search:django'},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['current_tags'], ['django'])
+        self.assertEqual(resp.context['current_search_terms'], [])
+
+
+# ──────────────────────────────────────────────
 # API 엔드포인트 테스트
 # ──────────────────────────────────────────────
 
@@ -572,6 +681,11 @@ class APIPostListTest(TestCase):
         resp = self.client.get('/api/posts/?tag=java', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()['posts']), 0)
+
+    def test_list_posts_tag_filter_is_case_insensitive(self):
+        resp = self.client.get('/api/posts/?tag=PYTHON', HTTP_AUTHORIZATION=f'Key {self.raw_key}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()['posts']), 1)
 
 
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)

@@ -34,49 +34,7 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <div class="d-flex flex-column flex-md-row align-items-md-center gap-2 gap-md-3 w-100">
-                    {% if navbar_top_tags %}
-                    <div class="navbar-tag-widget order-2 order-md-1">
-                        <div class="d-flex align-items-center gap-2 flex-wrap">
-                            <div class="navbar-tag-topline">
-                                {% for tag, count in navbar_top_tags %}
-                                <a href="{% url 'blog:post_list' %}?tag={{ tag|urlencode }}"
-                                   class="badge text-decoration-none {% if tag == navbar_current_tag %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
-                                    {{ tag }} ({{ count }})
-                                </a>
-                                {% endfor %}
-                            </div>
-                            {% if navbar_all_tag_items|length > navbar_top_tags|length %}
-                            <button type="button" class="btn btn-outline-light btn-sm py-0 px-2" id="navbar-tag-more-btn"
-                                    aria-controls="navbar-tag-more-panel" aria-expanded="false">
-                                더보기
-                            </button>
-                            {% endif %}
-                            <button type="button" class="btn btn-outline-light btn-sm py-0 px-2" id="navbar-tag-search-btn"
-                                    aria-controls="navbar-tag-search-panel" aria-expanded="false">
-                                검색
-                            </button>
-                        </div>
-                        <div id="navbar-tag-more-panel" class="navbar-tag-panel mt-2 d-none">
-                            {% for tag, count in navbar_all_tag_items %}
-                            <a href="{% url 'blog:post_list' %}?tag={{ tag|urlencode }}"
-                               class="badge text-decoration-none {% if tag == navbar_current_tag %}text-bg-primary{% else %}text-bg-dark border border-secondary-subtle{% endif %}">
-                                {{ tag }} ({{ count }})
-                            </a>
-                            {% endfor %}
-                        </div>
-                        <div id="navbar-tag-search-panel" class="navbar-tag-search mt-2 d-none">
-                            <div class="input-group input-group-sm">
-                                <input type="text" class="form-control form-control-sm" id="navbar-tag-search-input"
-                                       placeholder="태그 검색" autocomplete="off" aria-label="태그 검색">
-                                <button type="button" class="btn btn-primary btn-sm" id="navbar-tag-search-go">이동</button>
-                            </div>
-                            <div id="navbar-tag-suggest-list" class="list-group d-none"></div>
-                        </div>
-                    </div>
-                    {{ navbar_all_tag_items|json_script:"navbar-tag-items-data" }}
-                    {% endif %}
-                    <div class="navbar-nav ms-md-auto order-1 order-md-2">
+                <div class="navbar-nav ms-md-auto">
                         <a class="nav-link" href="{% url 'blog:api_guide' %}">API 가이드</a>
                         {% if user.is_staff %}
                         <a class="nav-link" href="{% url 'blog:post_create' %}">+ 글 작성</a>
@@ -115,7 +73,6 @@
                                          7.71 0 4.266 2.114 1.312 5.124.06A.75.75 0 0 1 6 .278"/>
                             </svg>
                         </button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -186,15 +143,12 @@
 
             if (!Array.isArray(tagItems) || !tagItems.length) return;
 
-            var tagSearchBtn = document.getElementById('navbar-tag-search-btn');
             var tagMoreBtn = document.getElementById('navbar-tag-more-btn');
-            var tagSearchPanel = document.getElementById('navbar-tag-search-panel');
             var tagMorePanel = document.getElementById('navbar-tag-more-panel');
             var tagInput = document.getElementById('navbar-tag-search-input');
-            var tagGoBtn = document.getElementById('navbar-tag-search-go');
+            var queryForm = document.getElementById('post-query-form');
             var suggestList = document.getElementById('navbar-tag-suggest-list');
-            var tagWidget = document.querySelector('.navbar-tag-widget');
-            var postListUrl = "{% url 'blog:post_list' %}";
+            var tagWidget = document.querySelector('.tag-discovery-widget');
 
             function togglePanel(panel, triggerBtn) {
                 if (!panel || !triggerBtn) return;
@@ -215,16 +169,6 @@
                 if (!suggestList) return;
                 suggestList.classList.add('d-none');
                 suggestList.innerHTML = '';
-            }
-
-            function buildTagUrl(tagName) {
-                return postListUrl + '?tag=' + encodeURIComponent(tagName);
-            }
-
-            function goToTagPage(tagName) {
-                var tag = (tagName || '').trim();
-                if (!tag) return;
-                window.location.href = buildTagUrl(tag);
             }
 
             function getMatches(query) {
@@ -249,18 +193,164 @@
                         if (a.count !== b.count) return b.count - a.count;
                         return a.name.localeCompare(b.name);
                     })
-                    .slice(0, 6);
+                    .slice(0, 3);
             }
 
-            function renderSuggestions(query) {
+            function escapeHtml(text) {
+                return String(text || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function getTagAutocompleteContext(inputValue) {
+                var value = String(inputValue || '');
+                var lower = value.toLowerCase();
+                var tagIdx = lower.indexOf('tag:');
+                var searchIdx = lower.indexOf('search:');
+
+                if (tagIdx === -1) {
+                    if (searchIdx !== -1) return null;
+                    return {
+                        candidate: value.trim(),
+                        apply: function(selectedTag) {
+                            return 'tag:' + selectedTag + ' ';
+                        },
+                    };
+                }
+
+                var tagStart = tagIdx + 4;
+                var tagEnd = (searchIdx !== -1 && searchIdx > tagIdx) ? searchIdx : value.length;
+                var tagSection = value.slice(tagStart, tagEnd);
+
+                function parseTagSection(section) {
+                    var raw = String(section || '').trim();
+                    if (!raw) return { committed: [], candidate: '' };
+
+                    if (raw.indexOf(',') !== -1) {
+                        var segs = raw.split(',');
+                        var committedByComma = segs
+                            .slice(0, -1)
+                            .map(function(s) { return s.trim(); })
+                            .filter(function(s) { return s; });
+                        var candidateByComma = (segs[segs.length - 1] || '').trim();
+                        if (candidateByComma.indexOf(' ') !== -1) {
+                            var bits = candidateByComma.split(/\s+/).filter(function(s) { return s; });
+                            if (bits.length > 1) {
+                                committedByComma = committedByComma.concat(bits.slice(0, -1));
+                                candidateByComma = bits[bits.length - 1];
+                            }
+                        }
+                        return { committed: committedByComma, candidate: candidateByComma };
+                    }
+
+                    var tokens = raw.split(/\s+/).filter(function(s) { return s; });
+                    if (tokens.length <= 1) {
+                        return { committed: [], candidate: tokens[0] || '' };
+                    }
+                    return {
+                        committed: tokens.slice(0, -1),
+                        candidate: tokens[tokens.length - 1],
+                    };
+                }
+
+                var parsed = parseTagSection(tagSection);
+
+                return {
+                    candidate: parsed.candidate.trim(),
+                    apply: function(selectedTag) {
+                        var tags = parsed.committed.concat([selectedTag]);
+                        var uniq = [];
+                        tags.forEach(function(t) {
+                            var v = String(t || '').trim();
+                            if (v && uniq.indexOf(v) === -1) {
+                                uniq.push(v);
+                            }
+                        });
+                        var normalizedTagSection = uniq.join(',');
+                        var before = value.slice(0, tagStart);
+                        var after = value.slice(tagEnd);
+                        if (after && after[0] !== ' ') {
+                            after = ' ' + after;
+                        }
+                        if (!after) {
+                            return before + normalizedTagSection + ' ';
+                        }
+                        return before + normalizedTagSection + after;
+                    },
+                };
+            }
+
+            function resolveTagChunk(chunkText) {
+                var chunk = String(chunkText || '').trim();
+                if (!chunk) return { tag: '', rest: '' };
+
+                var exact = getMatches(chunk).find(function(item) {
+                    return item.name.toLowerCase() === chunk.toLowerCase();
+                });
+                if (exact) {
+                    return { tag: exact.name, rest: '' };
+                }
+
+                var firstSpace = chunk.indexOf(' ');
+                if (firstSpace === -1) {
+                    return { tag: '', rest: '' };
+                }
+
+                var firstToken = chunk.slice(0, firstSpace).trim();
+                var remainder = chunk.slice(firstSpace + 1).trim();
+                var exactToken = getMatches(firstToken).find(function(item) {
+                    return item.name.toLowerCase() === firstToken.toLowerCase();
+                });
+                if (exactToken) {
+                    return { tag: exactToken.name, rest: remainder };
+                }
+                return { tag: '', rest: '' };
+            }
+
+            function normalizeQueryForSubmit(rawValue) {
+                var value = String(rawValue || '').trim();
+                if (!value) return value;
+
+                var lower = value.toLowerCase();
+                var hasTag = lower.indexOf('tag:') !== -1;
+                var hasSearch = lower.indexOf('search:') !== -1;
+                if (!hasTag || hasSearch) return value;
+
+                var tagIdx = lower.indexOf('tag:');
+                var tagSection = value.slice(tagIdx + 4).trim();
+                if (!tagSection) return value;
+
+                var chunks = tagSection.split(',');
+                var tags = [];
+                var searchTerms = [];
+
+                chunks.forEach(function(chunkText) {
+                    var resolved = resolveTagChunk(chunkText);
+                    if (!resolved.tag) return;
+                    if (tags.indexOf(resolved.tag) === -1) {
+                        tags.push(resolved.tag);
+                    }
+                    if (resolved.rest) {
+                        searchTerms.push(resolved.rest);
+                    }
+                });
+
+                if (!tags.length || !searchTerms.length) return value;
+                return 'tag:' + tags.join(',') + ' search:' + searchTerms.join(',');
+            }
+
+            function renderSuggestions(inputValue) {
                 if (!suggestList) return;
-                var raw = (query || '').trim();
-                if (!raw) {
+                var ctx = getTagAutocompleteContext(inputValue);
+                if (!ctx) {
                     closeSuggestions();
                     return;
                 }
 
-                var matches = getMatches(raw);
+                var matches = getMatches(ctx.candidate || '');
                 if (!matches.length) {
                     closeSuggestions();
                     return;
@@ -268,10 +358,10 @@
 
                 suggestList.innerHTML = matches.map(function(tag) {
                     return (
-                        '<a class="list-group-item list-group-item-action" href="' + buildTagUrl(tag.name) + '">' +
-                            '<span>' + tag.name + '</span>' +
+                        '<button type="button" class="list-group-item list-group-item-action tag-suggest-item" data-tag="' + escapeHtml(tag.name) + '">' +
+                            '<span>' + escapeHtml(tag.name) + '</span>' +
                             '<small class="text-body-secondary">(' + tag.count + ')</small>' +
-                        '</a>'
+                        '</button>'
                     );
                 }).join('');
 
@@ -279,40 +369,52 @@
             }
 
             tagMoreBtn?.addEventListener('click', function() {
-                closePanel(tagSearchPanel, tagSearchBtn);
                 closeSuggestions();
                 togglePanel(tagMorePanel, tagMoreBtn);
-            });
-
-            tagSearchBtn?.addEventListener('click', function() {
-                closePanel(tagMorePanel, tagMoreBtn);
-                togglePanel(tagSearchPanel, tagSearchBtn);
-                if (!tagSearchPanel.classList.contains('d-none') && tagInput) {
-                    tagInput.focus();
-                } else {
-                    closeSuggestions();
-                }
             });
 
             tagInput?.addEventListener('input', function() {
                 renderSuggestions(tagInput.value);
             });
 
+            tagInput?.addEventListener('focus', function() {
+                renderSuggestions(tagInput.value);
+            });
+
+            suggestList?.addEventListener('click', function(e) {
+                var item = e.target.closest('.tag-suggest-item');
+                if (!item || !tagInput) return;
+                var selectedTag = (item.dataset.tag || '').trim();
+                if (!selectedTag) return;
+                var ctx = getTagAutocompleteContext(tagInput.value);
+                if (!ctx) return;
+                tagInput.value = ctx.apply(selectedTag);
+                closeSuggestions();
+                tagInput.focus();
+            });
+
             tagInput?.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    goToTagPage(tagInput.value);
+                if (e.key === 'Tab' && !e.shiftKey) {
+                    var ctx = getTagAutocompleteContext(tagInput.value);
+                    if (ctx) {
+                        var top = getMatches(ctx.candidate || '')[0];
+                        if (top && top.name) {
+                            e.preventDefault();
+                            tagInput.value = ctx.apply(top.name);
+                            renderSuggestions(tagInput.value);
+                        }
+                    }
                 }
             });
 
-            tagGoBtn?.addEventListener('click', function() {
-                goToTagPage(tagInput.value);
+            queryForm?.addEventListener('submit', function() {
+                if (!tagInput) return;
+                tagInput.value = normalizeQueryForSubmit(tagInput.value);
             });
 
             document.addEventListener('click', function(e) {
                 if (tagWidget && !tagWidget.contains(e.target)) {
                     closePanel(tagMorePanel, tagMoreBtn);
-                    closePanel(tagSearchPanel, tagSearchBtn);
                     closeSuggestions();
                 }
             });
