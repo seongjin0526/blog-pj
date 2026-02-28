@@ -16,3 +16,7 @@ CLAUDE.md
 # Local tooling/workspace artifacts
 .codex/
 .vscode/
+
+# Project docs should stay tracked
+!CODEX.md
+!CODEX_CHANGELOG.md
