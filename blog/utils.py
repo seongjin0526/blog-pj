@@ -76,7 +76,7 @@ def generate_thumbnail(image_url, max_width=240, max_height=180):
         return image_url
 
     # 썸네일 파일명: 원본 경로 기반 해시
-    url_hash = hashlib.md5(image_url.encode()).hexdigest()[:12]
+    url_hash = hashlib.sha256(image_url.encode()).hexdigest()[:12]
     thumb_filename = f"thumb_{url_hash}.webp"
     thumb_dir = Path(settings.MEDIA_ROOT) / 'thumbnails'
     thumb_path = thumb_dir / thumb_filename
