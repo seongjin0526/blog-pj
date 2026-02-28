@@ -24,6 +24,7 @@ from .utils import (
     make_slug, process_uploaded_md, process_uploaded_zip,
     build_search_expression, extract_frontmatter_and_body,
     parse_search_expression, _parse_date, _parse_tags, normalize_tag,
+    extract_thumbnail_url, generate_thumbnail,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,9 @@ def post_list(request):
     paginator = Paginator(posts, per_page)
     page = request.GET.get('page', 1)
     page_obj = paginator.get_page(page)
+    for post in page_obj.object_list:
+        original_url = extract_thumbnail_url(post.body_md)
+        post.thumbnail_url = generate_thumbnail(original_url) if original_url else ''
 
     return render(request, 'blog/post_list.html', {
         'page_obj': page_obj,

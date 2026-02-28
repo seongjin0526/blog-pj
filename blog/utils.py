@@ -53,8 +53,8 @@ def extract_thumbnail_url(body_md):
     return ''
 
 
-def generate_thumbnail(image_url, max_width=240, max_height=180):
-    """로컬 이미지 URL에서 WebP 썸네일을 생성하고 썸네일 URL을 반환합니다.
+def generate_thumbnail(image_url, target_width=1280, target_height=720, quality=88):
+    """로컬 이미지 URL에서 16:9 WebP 썸네일을 생성하고 URL을 반환합니다.
     외부 URL이거나 파일이 없으면 원본 URL을 그대로 반환합니다."""
     if not image_url:
         return ''
@@ -75,7 +75,7 @@ def generate_thumbnail(image_url, max_width=240, max_height=180):
     if not source_path.is_file():
         return image_url
 
-    # 썸네일 파일명: 원본 경로 기반 해시
+    # 썸네일 파일명: 원본 경로 기반 해시(기존 URL 규칙 유지)
     url_hash = hashlib.sha256(image_url.encode()).hexdigest()[:12]
     thumb_filename = f"thumb_{url_hash}.webp"
     thumb_dir = Path(settings.MEDIA_ROOT) / 'thumbnails'
@@ -88,12 +88,19 @@ def generate_thumbnail(image_url, max_width=240, max_height=180):
 
     try:
         from PIL import Image
+        from PIL import ImageOps
 
         thumb_dir.mkdir(parents=True, exist_ok=True)
 
         with Image.open(source_path) as img:
-            img.thumbnail((max_width, max_height))
-            img.save(thumb_path, format='WEBP', quality=80)
+            img = ImageOps.exif_transpose(img)
+            thumb = ImageOps.fit(
+                img,
+                (target_width, target_height),
+                method=Image.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
+            thumb.save(thumb_path, format='WEBP', quality=quality, method=6)
 
         return thumb_url
     except Exception:
