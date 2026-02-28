@@ -132,18 +132,18 @@
 
         {% if page_obj %}
             {% for post in page_obj %}
-            <div class="card mb-2 mb-md-4 shadow-sm post-card" data-href="{% url 'blog:post_detail' post.slug %}" role="link" style="cursor:pointer;">
-                <div class="card-body py-2 px-3 py-md-3 px-md-3">
+            <div class="card mb-2 mb-md-4 shadow-sm post-card {% if post.thumbnail_url %}post-card-with-thumb{% endif %}"
+                 data-href="{% url 'blog:post_detail' post.slug %}" role="link"
+                 {% if post.thumbnail_url %}style="--post-bg-image: url('{{ post.thumbnail_url|escapejs }}'); cursor:pointer;"{% else %}style="cursor:pointer;"{% endif %}>
+                {% if post.thumbnail_url %}
+                <div class="post-card-bg" aria-hidden="true"></div>
+                <div class="post-card-overlay" aria-hidden="true"></div>
+                {% endif %}
+                <div class="card-body py-2 px-3 py-md-3 px-md-3 post-card-content">
                     <div class="d-flex align-items-start">
                         {% if user.is_staff %}
                         <div class="form-check me-2 me-md-3 mt-1">
                             <input class="form-check-input post-checkbox" type="checkbox" name="slugs" value="{{ post.slug }}">
-                        </div>
-                        {% endif %}
-                        {% if post.thumbnail_url %}
-                        <div class="flex-shrink-0 me-2 me-md-3">
-                            <img src="{{ post.thumbnail_url }}" class="rounded post-thumbnail"
-                                 alt="{{ post.title }} 썸네일">
                         </div>
                         {% endif %}
                         <div class="flex-grow-1 min-width-0">

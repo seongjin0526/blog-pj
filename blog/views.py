@@ -1,5 +1,6 @@
 import os
 import uuid
+import logging
 from datetime import datetime
 
 from django.conf import settings
@@ -24,6 +25,8 @@ from .utils import (
     build_search_expression, extract_frontmatter_and_body,
     parse_search_expression, _parse_date, _parse_tags, normalize_tag,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _apply_text_search(posts_qs, search_terms):
@@ -178,18 +181,21 @@ def post_create(request):
 def upload_image(request):
     image = request.FILES.get('image')
     if not image:
-        return JsonResponse({'error': '이미지 파일이 없습니다.'}, status=400)
+        logger.warning('upload_image rejected: missing file')
+        return JsonResponse({'ok': False, 'message': '이미지 업로드에 실패했습니다.'})
 
     # 파일 크기 제한 (5MB)
     max_size = 5 * 1024 * 1024
     if image.size > max_size:
-        return JsonResponse({'error': '파일 크기가 5MB를 초과합니다.'}, status=400)
+        logger.warning('upload_image rejected: file too large (%s bytes)', image.size)
+        return JsonResponse({'ok': False, 'message': '이미지 업로드에 실패했습니다.'})
 
     # 허용된 확장자 검증
     allowed_exts = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
     ext = os.path.splitext(image.name)[1].lower()
     if ext not in allowed_exts:
-        return JsonResponse({'error': '허용되지 않는 파일 형식입니다.'}, status=400)
+        logger.warning('upload_image rejected: invalid extension (%s)', ext)
+        return JsonResponse({'ok': False, 'message': '이미지 업로드에 실패했습니다.'})
 
     # 고유 파일명 생성
     filename = f"{uuid.uuid4().hex[:12]}{ext}"
@@ -197,12 +203,16 @@ def upload_image(request):
     os.makedirs(upload_dir, exist_ok=True)
 
     filepath = os.path.join(upload_dir, filename)
-    with open(filepath, 'wb') as f:
-        for chunk in image.chunks():
-            f.write(chunk)
+    try:
+        with open(filepath, 'wb') as f:
+            for chunk in image.chunks():
+                f.write(chunk)
+    except Exception:
+        logger.exception('upload_image failed while saving file: %s', filepath)
+        return JsonResponse({'ok': False, 'message': '이미지 업로드에 실패했습니다.'})
 
     url = f"{settings.MEDIA_URL}uploads/{filename}"
-    return JsonResponse({'url': url})
+    return JsonResponse({'ok': True, 'url': url})
 
 
 @never_cache

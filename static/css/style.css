@@ -56,15 +56,60 @@ main {
 }
 
 /* 글 목록 카드 클릭 */
+.post-card {
+    position: relative;
+    overflow: hidden;
+}
+
 .post-card[data-href]:hover {
     box-shadow: 0 .25rem .75rem rgba(0,0,0,.15);
 }
 
-/* 글 목록 썸네일 */
-.post-thumbnail {
-    width: 120px;
-    height: 90px;
-    object-fit: cover;
+.post-card-bg,
+.post-card-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.post-card-bg {
+    background-image: var(--post-bg-image);
+    background-size: cover;
+    background-position: center;
+    transform: scale(1.03);
+    filter: saturate(1.08) contrast(1.02);
+}
+
+.post-card-overlay {
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.45) 0%,
+        rgba(255, 255, 255, 0.72) 100%
+    );
+}
+
+.post-card-content {
+    position: relative;
+    z-index: 1;
+}
+
+.post-card-with-thumb .post-card-content {
+    min-height: 160px;
+}
+
+.post-card-with-thumb .card-title a {
+    color: #1f2328;
+}
+
+.post-card-with-thumb .post-summary,
+.post-card-with-thumb .post-date {
+    color: #3e4a56 !important;
+}
+
+.post-card-with-thumb .post-tags .badge {
+    background-color: rgba(255, 255, 255, 0.78);
+    border-color: rgba(49, 58, 66, 0.35) !important;
+    color: #2f3a45 !important;
 }
 
 /* min-width: 0 for flex text truncation */
@@ -92,6 +137,26 @@ main {
 
 [data-bs-theme="dark"] .post-card[data-href]:hover {
     box-shadow: 0 .25rem .75rem rgba(255, 255, 255, .08);
+}
+
+[data-bs-theme="dark"] .post-card-overlay {
+    background: linear-gradient(
+        180deg,
+        rgba(12, 15, 19, 0.45) 0%,
+        rgba(12, 15, 19, 0.7) 100%
+    );
+}
+
+[data-bs-theme="dark"] .post-card-with-thumb .card-title a,
+[data-bs-theme="dark"] .post-card-with-thumb .post-summary,
+[data-bs-theme="dark"] .post-card-with-thumb .post-date {
+    color: #f1f3f5 !important;
+}
+
+[data-bs-theme="dark"] .post-card-with-thumb .post-tags .badge {
+    background-color: rgba(26, 30, 34, 0.66);
+    border-color: rgba(241, 243, 245, 0.35) !important;
+    color: #f1f3f5 !important;
 }
 
 [data-bs-theme="dark"] .navbar {
@@ -170,12 +235,6 @@ main {
     .navbar-tag-panel,
     .tag-discovery-search {
         max-width: 100%;
-    }
-
-    /* 썸네일 축소 */
-    .post-thumbnail {
-        width: 56px;
-        height: 42px;
     }
 
     /* 카드 제목 */

@@ -264,13 +264,13 @@ async function uploadFile(file) {
             body: formData,
         });
         const data = await res.json();
-        if (data.url) {
+        if (data.ok && data.url) {
             const mdImage = `![${file.name}](${data.url})`;
             textarea.focus();
             document.execCommand('insertText', false, mdImage);
             updatePreview();
         } else {
-            alert(data.error || '업로드 실패');
+            alert(data.message || '업로드 실패');
         }
     } catch (e) {
         alert('업로드 중 오류가 발생했습니다.');
