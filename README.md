@@ -2,6 +2,11 @@
 
 Django 기반 마크다운 블로그 프로젝트입니다. Docker Compose로 실행합니다.
 
+## 개발 원칙
+
+- 로컬 `venv`는 사용하지 않습니다. 개발/테스트/배포 검증은 모두 Docker Compose로 실행합니다.
+- 로컬 Python 환경 차이로 인한 오동작을 줄이기 위해, `python manage.py ...` 명령은 컨테이너 내부에서만 실행합니다.
+
 ## Codex 운영 문서
 
 - 프로젝트 작업 가이드: `CODEX.md`
@@ -64,13 +69,91 @@ s.save()
 docker compose run --rm test
 ```
 
-### 5. 종료
+### 5. 개발 중 자주 쓰는 명령
+
+```bash
+# 서버 기동 (개발)
+docker compose up --build
+
+# Django 설정/앱 상태 점검
+docker compose exec web python manage.py check
+
+# 마이그레이션 파일 생성
+docker compose exec web python manage.py makemigrations
+
+# 마이그레이션 적용
+docker compose exec web python manage.py migrate
+
+# Django shell
+docker compose exec web python manage.py shell
+```
+
+### 6. 종료
 
 ```bash
 docker compose down
 ```
 
 데이터는 Docker 볼륨(`postgres_data`)과 로컬 `media/` 디렉토리에 보존됩니다.
+
+## 테스트/배포 작업 가이드
+
+개발자가 PR 머지 또는 배포 전 수행할 최소 절차입니다.
+
+### 1. 테스트
+
+```bash
+docker compose run --rm test
+```
+
+성공 기준:
+- `Ran ... tests` 이후 `OK`
+- `System check identified no issues`
+
+### 2. 보안/정적 점검
+
+```bash
+# 컨테이너 권한 점검 (root 금지)
+docker compose exec -T web id -u
+docker compose run --rm --no-deps test id -u
+
+# compose 보안 옵션 확인
+docker compose config
+```
+
+성공 기준:
+- UID가 `0`이 아님
+- `privileged: false`
+- `no-new-privileges:true`
+- `cap_drop: [ALL]`
+
+선택 점검(Bandit):
+```bash
+docker compose exec web sh -lc "pip install bandit && bandit -r blog/ -x blog/tests.py,blog/migrations/ -ll"
+```
+
+### 3. 배포 전 Git 확인
+
+```bash
+git status
+git diff HEAD
+git log --oneline -5
+```
+
+확인 항목:
+- `.env`, `db.sqlite3`, `media/`, `__pycache__/`가 커밋 대상에 포함되지 않았는지
+- 변경 내역과 커밋 메시지가 일치하는지
+- `CODEX_CHANGELOG.md` 최신화 여부
+
+### 4. 배포
+
+```bash
+git add <필요 파일>
+git commit -m "<한국어 커밋 메시지>"
+git push origin main
+```
+
+원격 반영 후 배포 서버에서 최신 이미지를 빌드/교체합니다.
 
 ## 프로덕션 배포
 
