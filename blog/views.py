@@ -15,6 +15,7 @@ from django.views.decorators.http import require_POST
 from datetime import timedelta
 
 from .models import APIKey, Comment, Post
+from .tag_utils import get_sorted_tag_counts
 from .utils import (
     make_slug, process_uploaded_md, process_uploaded_zip,
     extract_frontmatter_and_body, _parse_date, _parse_tags,
@@ -28,12 +29,7 @@ def post_list(request):
         posts = [p for p in posts if tag in p.tags]
 
     # 태그 집계
-    all_posts = Post.objects.all()
-    tag_count = {}
-    for p in all_posts:
-        for t in p.tags:
-            tag_count[t] = tag_count.get(t, 0) + 1
-    all_tags = sorted(tag_count.items(), key=lambda x: x[1], reverse=True)
+    all_tags = get_sorted_tag_counts()
 
     per_page_options = [10, 20, 50, 100]
     try:

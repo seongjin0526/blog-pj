@@ -8,3 +8,17 @@ venv/
 posts/*
 !posts/hello-world.md
 media/
+
+# Claude local artifacts
+.claude/
+CLAUDE.md
+
+# Codex shared artifacts are tracked:
+# - CODEX.md
+# - CODEX_CHANGELOG.md
+# - .codex/commands/
+# - .codex/skills/
+# Codex local/runtime artifacts only:
+.codex/cache/
+.codex/logs/
+.codex/tmp/

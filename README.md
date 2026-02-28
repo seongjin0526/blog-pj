@@ -2,6 +2,12 @@
 
 Django 기반 마크다운 블로그 프로젝트입니다. Docker Compose로 실행합니다.
 
+## Codex 운영 문서
+
+- 프로젝트 작업 가이드: `CODEX.md`
+- Codex 변경 이력: `CODEX_CHANGELOG.md`
+- 작업 명령 템플릿: `.codex/commands/`
+
 ## 시작하기
 
 ### 1. 환경변수 설정
