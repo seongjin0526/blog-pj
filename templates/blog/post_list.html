@@ -134,7 +134,7 @@
                                             {{ post.title }}
                                         </a>
                                     </h2>
-                                    <p class="text-muted post-date mb-0 ms-2 text-nowrap">{{ post.created_at|date:"Y-m-d" }}</p>
+                                    <p class="text-muted post-date mb-0 ms-2 text-nowrap">{{ post.created_at|date:"Y-m-d H:i:s" }}</p>
                                 </div>
                                 {% if post.summary %}
                                     <p class="card-text post-summary mb-1">{{ post.summary }}</p>
