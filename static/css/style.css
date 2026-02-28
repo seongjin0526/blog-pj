@@ -250,6 +250,16 @@ main {
     max-width: 420px;
 }
 
+@media (min-width: 768px) {
+    .tag-discovery-search {
+        max-width: 100%;
+    }
+
+    #post-query-form {
+        width: 100%;
+    }
+}
+
 .navbar-tag-topline {
     display: flex;
     gap: 0.35rem;
